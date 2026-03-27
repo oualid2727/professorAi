@@ -1,0 +1,120 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:16
+    container_name: ai-professor-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ai_prof
+      POSTGRES_PASSWORD: ai_prof_pw
+      POSTGRES_DB: ai_prof_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  chromadb:
+    image: chromadb/chroma:latest
+    container_name: ai-professor-chromadb
+    restart: unless-stopped
+    environment:
+      ANONYMIZED_TELEMETRY: "False"
+    ports:
+      - "8001:8000"
+    volumes:
+      - chroma-data:/chroma/.chroma
+
+  minio:
+    image: minio/minio:latest
+    container_name: ai-professor-minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio-data:/data
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ai-professor-ollama
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-data:/root/.ollama
+    environment:
+      OLLAMA_KEEP_ALIVE: "24h"
+
+  spark:
+    image: public.ecr.aws/bitnami/spark:3.5.3-debian-12-r3
+    container_name: ai-professor-spark
+    depends_on:
+      - minio
+    environment:
+      SPARK_MODE: driver
+      SPARK_USER: root
+    volumes:
+      - ./data:/opt/app/data
+      - ./pipeline:/opt/app/pipeline
+    command: ["/bin/bash", "-c", "sleep infinity"]
+
+  airflow:
+    image: apache/airflow:2.10.0-python3.11
+    container_name: ai-professor-airflow
+    restart: unless-stopped
+    depends_on:
+      - postgres
+      - spark
+      - minio
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__CORE__SQL_ALCHEMY_CONN: postgresql+psycopg2://ai_prof:ai_prof_pw@postgres:5432/ai_prof_db
+      AIRFLOW__CORE__LOAD_EXAMPLES: "False"
+      AIRFLOW__WEBSERVER__RBAC: "True"
+    user: "50000:0"
+    volumes:
+      - ./airflow/dags:/opt/airflow/dags
+      - ./airflow/logs:/opt/airflow/logs
+      - ./airflow/plugins:/opt/airflow/plugins
+      - ./data:/opt/app/data
+    ports:
+      - "8080:8080"
+    command: >
+      bash -c "airflow db init &&
+               airflow users create --username admin --firstname Admin --lastname User --role Admin --email admin@example.com --password admin ||
+               true &&
+               airflow webserver & airflow scheduler"
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    container_name: ai-professor-api
+    restart: unless-stopped
+    depends_on:
+      - chromadb
+      - postgres
+      - ollama
+    environment:
+      DATABASE_URL: postgresql+psycopg2://ai_prof:ai_prof_pw@postgres:5432/ai_prof_db
+      CHROMA_HOST: chromadb
+      CHROMA_PORT: "8000"
+      OLLAMA_HOST: ollama
+      OLLAMA_MODEL: llama3
+    volumes:
+      - ./backend:/app
+    working_dir: /app
+    command: uvicorn api.main:app --host 0.0.0.0 --port 8000 --reload
+    ports:
+      - "8000:8000"
+
+volumes:
+  pgdata:
+  chroma-data:
+  minio-data:
+  ollama-data:
+
