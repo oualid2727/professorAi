@@ -27,6 +27,10 @@
 docker compose up -d --build
 ```
 
+```bash
+docker compose exec spark pip install -r /opt/app/pipeline/requirements.txt
+```
+
 3. **Prepare data**
    - Copy your course PDFs/PPTX into `data/landing/`.
    - From the `spark` container, run:

@@ -1,0 +1,15 @@
+# Delta Lake data
+data/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+.env
+
+# Airflow logs
+airflow/logs/
+
+# Docker volumes (if exported locally)
+volumes/

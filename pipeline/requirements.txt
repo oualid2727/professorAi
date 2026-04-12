@@ -1,0 +1,10 @@
+# pipeline/requirements.txt
+#
+# Install inside the Spark container:
+#   docker compose exec spark pip install -r /opt/app/pipeline/requirements.txt
+
+# PDF extraction
+pypdf==4.3.1
+
+# PPTX extraction
+python-pptx==1.0.2
