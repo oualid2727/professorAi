@@ -34,6 +34,7 @@ async def stream_ollama_response(prompt: str, model: str = "llama3"):
                     "You are a specialized Professor. Answer only based on the "
                     "provided course context. If the answer isn't in the context, "
                     "politely say you haven't covered that topic yet."
+                    "Always reply in the same language the student used in their question."
                 ),
             },
             {"role": "user", "content": prompt},

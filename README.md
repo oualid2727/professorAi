@@ -36,7 +36,7 @@ docker compose exec spark pip install -r /opt/app/pipeline/requirements.txt
    - From the `spark` container, run:
 
 ```bash
-docker compose exec spark python /opt/app/pipeline/pdf_to_delta.py
+docker compose exec spark python /opt/app/pipeline/run_pipeline.py
 ```
 
 This writes Delta tables under `/opt/app/data/delta/{bronze,silver,gold}`.
@@ -80,3 +80,9 @@ docker compose exec api python -m evaluation.ragas_eval
 
 Edit `evaluation/ragas_eval.py` to point to your stored interactions and inspect the printed `faithfulness` scores.
 
+
+to restart : 
+
+```bash
+docker compose restart api
+```
