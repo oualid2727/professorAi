@@ -1,35 +1,142 @@
 # pipeline/gold.py
 #
-# Gold layer: chunking and embeddings.
+# Gold layer: semantic chunking + real embeddings.
 # Responsibilities:
-#   1. Split each document's raw_text into chunks at page/slide boundaries.
+#   1. Split each document's raw_text into semantically coherent chunks using
+#      a recursive character splitter (respects sentence/paragraph boundaries).
 #   2. Drop near-empty chunks (< 30 chars after trimming).
-#   3. Attach a unique chunk_id per chunk.
-#   4. Placeholder embedding column — replaced with real Ollama vectors in step 3.
+#   3. Attach a unique chunk_id and source metadata to each chunk.
+#   4. Call Ollama nomic-embed-text to produce a real 768-dim embedding vector
+#      for every chunk.
 
 from pyspark.sql import DataFrame, functions as F
+from pyspark.sql.types import ArrayType, FloatType, StringType
 
+
+# ── Chunker UDF ───────────────────────────────────────────────────────────────
+# Runs on the driver+executors. Takes one document's raw_text and returns a
+# JSON-encoded list of chunk strings. We use JSON so Spark can handle a
+# variable-length list in a single UDF return value.
+
+def _chunk(raw_text: str) -> str:
+    """
+    Recursive character splitter.
+    Tries to split on paragraph breaks first, then sentences, then words,
+    falling back to hard character cuts only when necessary.
+    Keeps CHUNK_OVERLAP characters of context between consecutive chunks.
+    """
+    import json   # noqa: PLC0415
+    import os     # noqa: PLC0415
+
+    chunk_size    = int(os.getenv("CHUNK_SIZE",    "2000"))
+    chunk_overlap = int(os.getenv("CHUNK_OVERLAP", "200"))
+
+    # Priority-ordered separators: paragraph → sentence → word → character
+    separators = ["\n\n", "\n", ". ", " ", ""]
+
+    def _split(text: str, seps: list) -> list:
+        if not seps:
+            # Hard split — last resort
+            return [text[i:i + chunk_size]
+                    for i in range(0, len(text), chunk_size - chunk_overlap)]
+
+        sep = seps[0]
+        parts = text.split(sep) if sep else list(text)
+
+        chunks, current = [], ""
+        for part in parts:
+            candidate = current + (sep if current else "") + part
+            if len(candidate) <= chunk_size:
+                current = candidate
+            else:
+                if current:
+                    chunks.append(current)
+                # If the part itself is too large, recurse with finer separators
+                if len(part) > chunk_size:
+                    chunks.extend(_split(part, seps[1:]))
+                    current = ""
+                else:
+                    current = part
+
+        if current:
+            chunks.append(current)
+        return chunks
+
+    raw_chunks = _split(raw_text, separators)
+
+    # Add overlap: prepend the tail of the previous chunk to the current one
+    overlapped = []
+    for i, chunk in enumerate(raw_chunks):
+        if i > 0 and chunk_overlap > 0:
+            prev_tail = raw_chunks[i - 1][-chunk_overlap:]
+            chunk = prev_tail + " " + chunk
+        overlapped.append(chunk.strip())
+
+    return json.dumps([c for c in overlapped if len(c) > 30])
+
+
+chunk_udf = F.udf(_chunk, StringType())
+
+
+# ── Embedding UDF ─────────────────────────────────────────────────────────────
+# Calls Ollama's /api/embeddings endpoint for one chunk at a time.
+# Returns a list of floats (768 dims for nomic-embed-text).
+# Failures return a zero vector so the pipeline doesn't crash on one bad chunk.
+
+def _embed(chunk_text: str) -> list:
+    import os       # noqa: PLC0415
+    import httpx    # noqa: PLC0415
+
+    host  = os.getenv("OLLAMA_HOST",  "ollama")
+    port  = os.getenv("OLLAMA_PORT",  "11434")
+    model = os.getenv("EMBED_MODEL",  "nomic-embed-text")
+
+    try:
+        resp = httpx.post(
+            f"http://{host}:{port}/api/embeddings",
+            json={"model": model, "prompt": chunk_text},
+            timeout=60,
+        )
+        resp.raise_for_status()
+        return [float(x) for x in resp.json()["embedding"]]
+    except Exception:
+        # Return a zero vector — chunk is kept but won't match anything in search
+        return [0.0] * 768
+
+
+embed_udf = F.udf(_embed, ArrayType(FloatType()))
+
+
+# ── Public API ────────────────────────────────────────────────────────────────
 
 def build_gold(df: DataFrame) -> DataFrame:
     """
-    Explode the silver DataFrame into one row per text chunk.
+    Transforms the silver DataFrame into one row per semantic chunk with
+    a real embedding vector.
+
     Output schema adds to silver:
-        chunk_text, chunk_id, embedding
-    (raw_text is kept so the full document is still accessible per chunk)
+        chunk_text  (str)          — the chunk content
+        chunk_id    (bigint)       — unique monotonic ID
+        embedding   (array<float>) — 768-dim nomic-embed-text vector
     """
     return (
         df
-        # Split on double newlines — the extractor marks page/slide boundaries here
-        .withColumn("chunks", F.split(F.col("raw_text"), r"\n\n"))
-        .withColumn("chunk_text", F.explode(F.col("chunks")))
-        .drop("chunks")
+        # 1. Chunk each document → JSON list of strings stored in _chunks
+        .withColumn("_chunks", chunk_udf(F.col("raw_text")))
 
-        # Drop near-empty chunks that add noise to retrieval
+        # 2. Parse the JSON array and explode into one row per chunk
+        .withColumn("chunk_text", F.explode(F.from_json(
+            F.col("_chunks"),
+            ArrayType(StringType())
+        )))
+        .drop("_chunks")
+
+        # 3. Final length guard after overlap prepending
         .filter(F.length(F.trim(F.col("chunk_text"))) > 30)
 
-        # Stable unique ID per chunk
+        # 4. Stable unique ID
         .withColumn("chunk_id", F.monotonically_increasing_id())
 
-        # Placeholder — replaced by real nomic-embed-text vectors in step 3
-        .withColumn("embedding", F.array(F.lit(0.0)))
+        # 5. Real embeddings — this is the slow step, one HTTP call per chunk
+        .withColumn("embedding", embed_udf(F.col("chunk_text")))
     )
