@@ -1,3 +1,5 @@
+# backend/api/main.py
+
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from typing import List, Dict, Any
@@ -19,6 +21,22 @@ app.add_middleware(
 )
 
 
+# ── RAG prompt builder ────────────────────────────────────────────────────────
+
+def build_rag_prompt(question: str, context: str) -> str:
+    """
+    Wraps the student's question with the retrieved course context so the
+    LLM answers only from what's in the documents.
+    """
+    return (
+        f"Use the following course material to answer the student's question.\n\n"
+        f"--- COURSE CONTEXT ---\n{context}\n--- END CONTEXT ---\n\n"
+        f"Student question: {question}"
+    )
+
+
+# ── Ollama streaming ──────────────────────────────────────────────────────────
+
 async def stream_ollama_response(prompt: str, model: str = "llama3"):
     """
     Stream tokens from local Ollama.
@@ -33,7 +51,7 @@ async def stream_ollama_response(prompt: str, model: str = "llama3"):
                 "content": (
                     "You are a specialized Professor. Answer only based on the "
                     "provided course context. If the answer isn't in the context, "
-                    "politely say you haven't covered that topic yet."
+                    "politely say you haven't covered that topic yet. "
                     "Always reply in the same language the student used in their question."
                 ),
             },
@@ -56,6 +74,8 @@ async def stream_ollama_response(prompt: str, model: str = "llama3"):
                     yield content
 
 
+# ── Audio / viseme stubs ──────────────────────────────────────────────────────
+
 def synthesize_dummy_audio(text_chunk: str) -> bytes:
     """
     Placeholder for local TTS (Piper/Coqui).
@@ -76,13 +96,7 @@ def generate_visemes(text_chunk: str) -> List[Dict[str, Any]]:
     Very simple character-based viseme mapping.
     Replace with phoneme alignment from real TTS.
     """
-    mapping = {
-        "A": "A",
-        "E": "E",
-        "I": "I",
-        "O": "O",
-        "U": "U",
-    }
+    mapping = {"A": "A", "E": "E", "I": "I", "O": "O", "U": "U"}
     visemes = []
     timestamp = 0.0
     step = 0.08
@@ -94,37 +108,60 @@ def generate_visemes(text_chunk: str) -> List[Dict[str, Any]]:
     return visemes
 
 
+# ── WebSocket endpoint ────────────────────────────────────────────────────────
+
 @app.websocket("/ws/professor")
 async def professor_ws(websocket: WebSocket):
     await websocket.accept()
     try:
         while True:
             message = await websocket.receive_json()
-            # Supports either text input or prior STT pipeline
             user_text = message.get("text", "")
 
+            # ── 1. Hybrid retrieval (BM25 + vector) ──────────────────────────
+            # Run in a thread so the async event loop isn't blocked by the
+            # synchronous LangChain/ChromaDB calls.
+            try:
+                from chain import retrieve_context  # noqa: PLC0415
+                context, sources = await asyncio.get_event_loop().run_in_executor(
+                    None, retrieve_context, user_text
+                )
+            except Exception as e:
+                # If retrieval fails (e.g. Chroma not yet indexed), fall back
+                # to answering without context so the API stays responsive.
+                print(f"Retrieval error (falling back to no-context): {e}")
+                context, sources = "", []
+
+            # ── 2. Build RAG prompt ───────────────────────────────────────────
+            if context:
+                prompt = build_rag_prompt(user_text, context)
+            else:
+                prompt = user_text
+
+            # ── 3. Stream LLM response ────────────────────────────────────────
             accumulated = ""
-            async for token in stream_ollama_response(user_text):
+            async for token in stream_ollama_response(prompt):
                 accumulated += token
                 audio_bytes = synthesize_dummy_audio(token)
                 audio_b64 = base64.b64encode(audio_bytes).decode("utf-8")
                 visemes = generate_visemes(token)
 
-                chunk_payload = {
+                await websocket.send_json({
                     "text_chunk": token,
                     "audio_b64": audio_b64,
                     "visemes": visemes,
                     "is_final": False,
-                }
-                await websocket.send_json(chunk_payload)
+                })
 
-            final_payload = {
+            # ── 4. Final message with sources ─────────────────────────────────
+            await websocket.send_json({
                 "text_chunk": accumulated,
                 "audio_b64": None,
                 "visemes": [],
+                "sources": sources,   # list of {filename, subject, chapter, …}
                 "is_final": True,
-            }
-            await websocket.send_json(final_payload)
+            })
+
     except WebSocketDisconnect:
         return
 
@@ -132,4 +169,3 @@ async def professor_ws(websocket: WebSocket):
 @app.get("/health")
 async def health():
     return {"status": "ok"}
-
