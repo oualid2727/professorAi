@@ -75,12 +75,16 @@ services:
       AIRFLOW__CORE__SQL_ALCHEMY_CONN: postgresql+psycopg2://ai_prof:ai_prof_pw@postgres:5432/ai_prof_db
       AIRFLOW__CORE__LOAD_EXAMPLES: "False"
       AIRFLOW__WEBSERVER__RBAC: "True"
+      # Filesystem connection used by the FileSensor in professor_pipeline DAG
+      AIRFLOW_CONN_FS_LANDING: '{"conn_type": "fs", "extra": {"path": "/opt/app/data/landing"}}'
     user: "50000:0"
     volumes:
       - ./airflow/dags:/opt/airflow/dags
       - ./airflow/logs:/opt/airflow/logs
       - ./airflow/plugins:/opt/airflow/plugins
       - ./data:/opt/app/data
+      # Docker socket — lets Airflow run `docker exec` into the Spark container
+      - /var/run/docker.sock:/var/run/docker.sock
     ports:
       - "8080:8080"
     command: >
@@ -117,4 +121,3 @@ volumes:
   chroma-data:
   minio-data:
   ollama-data:
-
