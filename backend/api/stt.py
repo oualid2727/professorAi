@@ -25,9 +25,10 @@ from faster_whisper import WhisperModel
 # device="cpu" + compute_type="int8" is the right combo for CPU-only containers
 # — int8 quantisation cuts memory use and speeds up inference significantly.
 
-_MODEL_NAME = os.getenv("WHISPER_MODEL", "base")
+_MODEL_NAME = os.getenv("WHISPER_MODEL", "small")
+_LANGUAGE   = os.getenv("WHISPER_LANGUAGE", None)  # e.g. "fr", "en", "ar" — None = auto-detect
 
-print(f"[stt] Loading Whisper model '{_MODEL_NAME}'...")
+print(f"[stt] Loading Whisper model '{_MODEL_NAME}' (language={_LANGUAGE or 'auto'})...")
 _model = WhisperModel(_MODEL_NAME, device="cpu", compute_type="int8")
 print(f"[stt] Whisper '{_MODEL_NAME}' ready.")
 
@@ -69,7 +70,8 @@ def transcribe(audio_bytes: bytes, mime_type: str = "audio/webm") -> str:
         segments, _info = _model.transcribe(
             tmp_path,
             beam_size=5,
-            language=None,   # auto-detect — matches multilingual setup
+            language=_LANGUAGE,  # None = auto-detect, or e.g. 'fr', 'en'
+            vad_filter=True,     # skip silent segments, reduces hallucinations
         )
         text = " ".join(seg.text for seg in segments).strip()
         return text

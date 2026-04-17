@@ -7,6 +7,7 @@ import asyncio
 import base64
 import json
 import uuid
+import os
 import httpx
 import numpy as np
 
@@ -31,11 +32,13 @@ app.add_middleware(
 
 # ── RAG prompt builder ────────────────────────────────────────────────────────
 
-def build_rag_prompt(question: str, context: str) -> str:
+def build_rag_prompt(question: str, context: str, language: str = "") -> str:
+    lang_instruction = f"Reply in {language}." if language else ""
     return (
         f"Use the following course material to answer the student's question.\n\n"
         f"--- COURSE CONTEXT ---\n{context}\n--- END CONTEXT ---\n\n"
-        f"Student question: {question}"
+        f"Student question: {question}\n\n"
+        f"{lang_instruction}"
     )
 
 
@@ -134,7 +137,8 @@ async def professor_ws(websocket: WebSocket):
                 await websocket.send_json({"info": "history cleared", "is_final": False})
                 continue
 
-            user_text = message.get("text", "")
+            user_text  = message.get("text", "")
+            reply_lang = ""   # filled below for audio input, empty for text input
 
             # ── Audio input → Whisper STT ─────────────────────────────────────
             # If the client sends audio instead of text, transcribe it first.
@@ -153,6 +157,10 @@ async def professor_ws(websocket: WebSocket):
                             "transcript": user_text,
                             "is_final": False,
                         })
+                    # Tell the LLM which language to reply in — avoids it
+                    # drifting to English when the RAG context is in English.
+                    configured = os.getenv("WHISPER_LANGUAGE", "")
+                    reply_lang = configured if configured else "the same language as the student"
                 except Exception as e:
                     print(f"[stt] error: {e}")
 
@@ -179,7 +187,9 @@ async def professor_ws(websocket: WebSocket):
                 context, sources = "", []
 
             # ── 3. Build RAG prompt ───────────────────────────────────────────
-            prompt = build_rag_prompt(user_text, context) if context else user_text
+            prompt = build_rag_prompt(user_text, context, reply_lang) if context else (
+                user_text + (f"\n\nReply in {reply_lang}." if reply_lang else "")
+            )
 
             # ── 4. Save user turn ─────────────────────────────────────────────
             try:

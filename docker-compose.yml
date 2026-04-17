@@ -109,6 +109,12 @@ services:
       CHROMA_PORT: "8000"
       OLLAMA_HOST: ollama
       OLLAMA_MODEL: llama3
+      # Whisper STT settings
+      # Model size: tiny | base | small | medium (small is a good balance)
+      WHISPER_MODEL: small
+      # Force a language for better accuracy ("fr", "en", "ar"…)
+      # Leave commented out to use auto-detection
+      #WHISPER_LANGUAGE: fr
     volumes:
       - ./backend:/app
     working_dir: /app
