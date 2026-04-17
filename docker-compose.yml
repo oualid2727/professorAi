@@ -114,7 +114,13 @@ services:
       WHISPER_MODEL: small
       # Force a language for better accuracy ("fr", "en", "ar"…)
       # Leave commented out to use auto-detection
-      #WHISPER_LANGUAGE: fr
+      WHISPER_LANGUAGE: fr
+      # XTTS v2 TTS settings
+      TTS_LANGUAGE: fr
+      TTS_ENABLED: "true"
+      # Path to a short (6-30s) WAV of the professor's voice for cloning.
+      # If the file doesn't exist XTTS uses its default built-in speaker.
+      TTS_SPEAKER_WAV: /app/api/reference_voice/professor.wav
     volumes:
       - ./backend:/app
     working_dir: /app

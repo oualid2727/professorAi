@@ -8,8 +8,8 @@ import base64
 import json
 import uuid
 import os
+import re
 import httpx
-import numpy as np
 
 # ── Import local modules at startup so errors surface in logs immediately ─────
 # If any of these fail the server will refuse to start with a clear traceback,
@@ -17,6 +17,7 @@ import numpy as np
 from api.memory import load_history, save_turn, clear_history  # noqa: E402
 from api.chain import retrieve_context                          # noqa: E402
 from api.stt import transcribe                                  # noqa: E402
+from api.tts import synthesize                                  # noqa: E402
 
 
 app = FastAPI(title="AI Professor API")
@@ -92,24 +93,15 @@ async def stream_ollama_response(
                     yield content
 
 
-# ── Audio / viseme stubs ──────────────────────────────────────────────────────
+# ── Sentence buffering ───────────────────────────────────────────────────────
+# XTTS v2 synthesizes a full sentence at a time — not per token.
+# We buffer tokens until a sentence boundary, then synthesize the whole sentence.
+# This gives low latency (audio starts after the first sentence) + good quality.
 
-def synthesize_dummy_audio(text_chunk: str) -> bytes:
-    duration_sec = 0.2
-    sample_rate = 16000
-    t = np.linspace(0, duration_sec, int(sample_rate * duration_sec), endpoint=False)
-    audio = 0.1 * np.sin(2 * np.pi * 220.0 * t)
-    return (audio * 32767).astype(np.int16).tobytes()
+_SENTENCE_END = re.compile(r'[.!?;:]')
 
-
-def generate_visemes(text_chunk: str) -> List[Dict[str, Any]]:
-    mapping = {"A": "A", "E": "E", "I": "I", "O": "O", "U": "U"}
-    visemes, timestamp = [], 0.0
-    for ch in text_chunk.upper():
-        if ch in mapping:
-            visemes.append({"id": mapping[ch], "timestamp": round(timestamp, 3)})
-            timestamp += 0.08
-    return visemes
+def _is_sentence_end(token: str) -> bool:
+    return bool(_SENTENCE_END.search(token))
 
 
 # ── WebSocket endpoint ────────────────────────────────────────────────────────
@@ -200,17 +192,59 @@ async def professor_ws(websocket: WebSocket):
             except Exception as e:
                 print(f"[memory] save_turn(user) error: {e}")
 
-            # ── 5. Stream LLM response ────────────────────────────────────────
-            accumulated = ""
+            # ── 5. Stream LLM response with sentence-level TTS ────────────────
+            # Tokens stream in one by one. We accumulate them into a sentence
+            # buffer and synthesize audio when we hit a sentence boundary.
+            # This way audio starts playing after the first sentence rather
+            # than waiting for the full response.
+            accumulated   = ""
+            sentence_buf  = ""
+            tts_lang      = reply_lang.replace("the same language as the student", "") or os.getenv("TTS_LANGUAGE", "fr")
+
             async for token in stream_ollama_response(prompt, history):
-                accumulated += token
-                audio_b64 = base64.b64encode(synthesize_dummy_audio(token)).decode()
+                accumulated  += token
+                sentence_buf += token
+
+                # Send text token immediately so text renders without waiting for audio
                 await websocket.send_json({
                     "text_chunk": token,
-                    "audio_b64": audio_b64,
-                    "visemes": generate_visemes(token),
-                    "is_final": False,
+                    "audio_b64":  None,
+                    "visemes":    [],
+                    "is_final":   False,
                 })
+
+                # When we hit a sentence boundary, synthesize and send audio
+                if _is_sentence_end(token) and sentence_buf.strip():
+                    try:
+                        wav_bytes, visemes = await asyncio.get_event_loop().run_in_executor(
+                            None, synthesize, sentence_buf.strip(), tts_lang
+                        )
+                        audio_b64 = base64.b64encode(wav_bytes).decode()
+                        await websocket.send_json({
+                            "text_chunk": "",
+                            "audio_b64":  audio_b64,
+                            "visemes":    visemes,
+                            "is_final":   False,
+                        })
+                    except Exception as e:
+                        print(f"[tts] error during streaming: {e}")
+                    sentence_buf = ""
+
+            # Synthesize any remaining text that didn't end with punctuation
+            if sentence_buf.strip():
+                try:
+                    wav_bytes, visemes = await asyncio.get_event_loop().run_in_executor(
+                        None, synthesize, sentence_buf.strip(), tts_lang
+                    )
+                    audio_b64 = base64.b64encode(wav_bytes).decode()
+                    await websocket.send_json({
+                        "text_chunk": "",
+                        "audio_b64":  audio_b64,
+                        "visemes":    visemes,
+                        "is_final":   False,
+                    })
+                except Exception as e:
+                    print(f"[tts] error on final chunk: {e}")
 
             # ── 6. Save assistant turn ────────────────────────────────────────
             try:

@@ -19,3 +19,8 @@ rank_bm25==0.2.2
 
 # Local Whisper STT
 faster-whisper==1.0.3
+
+# XTTS v2 TTS + phoneme visemes
+TTS==0.22.0
+phonemizer==3.2.1
+ 
