@@ -6,8 +6,15 @@ from typing import List, Dict, Any
 import asyncio
 import base64
 import json
+import uuid
 import httpx
 import numpy as np
+
+# ── Import local modules at startup so errors surface in logs immediately ─────
+# If any of these fail the server will refuse to start with a clear traceback,
+# rather than silently dropping connections at runtime.
+from api.memory import load_history, save_turn, clear_history  # noqa: E402
+from api.chain import retrieve_context                          # noqa: E402
 
 
 app = FastAPI(title="AI Professor API")
@@ -24,10 +31,6 @@ app.add_middleware(
 # ── RAG prompt builder ────────────────────────────────────────────────────────
 
 def build_rag_prompt(question: str, context: str) -> str:
-    """
-    Wraps the student's question with the retrieved course context so the
-    LLM answers only from what's in the documents.
-    """
     return (
         f"Use the following course material to answer the student's question.\n\n"
         f"--- COURSE CONTEXT ---\n{context}\n--- END CONTEXT ---\n\n"
@@ -37,27 +40,38 @@ def build_rag_prompt(question: str, context: str) -> str:
 
 # ── Ollama streaming ──────────────────────────────────────────────────────────
 
-async def stream_ollama_response(prompt: str, model: str = "llama3"):
+async def stream_ollama_response(
+    prompt: str,
+    history: List[Dict[str, str]],
+    model: str = "llama3",
+):
     """
     Stream tokens from local Ollama.
+    history is injected between the system prompt and the current turn.
     """
     url = "http://ollama:11434/api/chat"
-    payload = {
-        "model": model,
-        "stream": True,
-        "messages": [
-            {
-                "role": "system",
-                "content": (
-                    "You are a specialized Professor. Answer only based on the "
-                    "provided course context. If the answer isn't in the context, "
-                    "politely say you haven't covered that topic yet. "
-                    "Always reply in the same language the student used in their question."
-                ),
-            },
-            {"role": "user", "content": prompt},
-        ],
-    }
+
+    messages = [
+        {
+            "role": "system",
+            "content": (
+                "You are a specialized Professor.\n\n"
+                "You must use:\n"
+                "1. The provided course context (if available)\n"
+                "2. The conversation history (previous messages)\n\n"
+                "If the student asks about something personal mentioned earlier "
+                "(like their name or preferences), you MUST use the conversation history.\n\n"
+                "If the answer is not in the course context but is in the conversation history, answer using the history.\n\n"
+                "Only say you haven't covered the topic if it's neither in the context nor in the conversation.\n\n"
+                "Always reply in the same language as the student."
+            ),
+        },
+        *history,
+        {"role": "user", "content": prompt},
+    ]
+
+    payload = {"model": model, "stream": True, "messages": messages}
+
     async with httpx.AsyncClient(timeout=None) as client:
         async with client.stream("POST", url, json=payload) as response:
             async for line in response.aiter_lines():
@@ -77,34 +91,20 @@ async def stream_ollama_response(prompt: str, model: str = "llama3"):
 # ── Audio / viseme stubs ──────────────────────────────────────────────────────
 
 def synthesize_dummy_audio(text_chunk: str) -> bytes:
-    """
-    Placeholder for local TTS (Piper/Coqui).
-    Generates a short dummy waveform per chunk to keep the
-    streaming contract intact. Replace with real TTS integration.
-    """
     duration_sec = 0.2
     sample_rate = 16000
     t = np.linspace(0, duration_sec, int(sample_rate * duration_sec), endpoint=False)
-    freq = 220.0
-    audio = 0.1 * np.sin(2 * np.pi * freq * t)
-    audio_int16 = (audio * 32767).astype(np.int16)
-    return audio_int16.tobytes()
+    audio = 0.1 * np.sin(2 * np.pi * 220.0 * t)
+    return (audio * 32767).astype(np.int16).tobytes()
 
 
 def generate_visemes(text_chunk: str) -> List[Dict[str, Any]]:
-    """
-    Very simple character-based viseme mapping.
-    Replace with phoneme alignment from real TTS.
-    """
     mapping = {"A": "A", "E": "E", "I": "I", "O": "O", "U": "U"}
-    visemes = []
-    timestamp = 0.0
-    step = 0.08
+    visemes, timestamp = [], 0.0
     for ch in text_chunk.upper():
-        viseme_id = mapping.get(ch)
-        if viseme_id:
-            visemes.append({"id": viseme_id, "timestamp": round(timestamp, 3)})
-            timestamp += step
+        if ch in mapping:
+            visemes.append({"id": mapping[ch], "timestamp": round(timestamp, 3)})
+            timestamp += 0.08
     return visemes
 
 
@@ -113,52 +113,88 @@ def generate_visemes(text_chunk: str) -> List[Dict[str, Any]]:
 @app.websocket("/ws/professor")
 async def professor_ws(websocket: WebSocket):
     await websocket.accept()
+
+    session_id: str | None = None
+
     try:
         while True:
             message = await websocket.receive_json()
-            user_text = message.get("text", "")
 
-            # ── 1. Hybrid retrieval (BM25 + vector) ──────────────────────────
-            # Run in a thread so the async event loop isn't blocked by the
-            # synchronous LangChain/ChromaDB calls.
+            # ── Resolve session ───────────────────────────────────────────────
+            if session_id is None:
+                session_id = message.get("session_id") or str(uuid.uuid4())
+                await websocket.send_json({"session_id": session_id, "is_final": False})
+
+            # ── Handle clear_history command ──────────────────────────────────
+            if message.get("command") == "clear_history":
+                await asyncio.get_event_loop().run_in_executor(
+                    None, clear_history, session_id
+                )
+                await websocket.send_json({"info": "history cleared", "is_final": False})
+                continue
+
+            user_text = message.get("text", "")
+            if not user_text:
+                continue
+
+            # ── 1. Load conversation history ──────────────────────────────────
             try:
-                from chain import retrieve_context  # noqa: PLC0415
+                history = await asyncio.get_event_loop().run_in_executor(
+                    None, load_history, session_id
+                )
+                print(f"[memory] session={session_id[:8]}… loaded {len(history)} turns")
+            except Exception as e:
+                print(f"[memory] load_history error: {e}")
+                history = []
+
+            # ── 2. Hybrid retrieval ───────────────────────────────────────────
+            try:
                 context, sources = await asyncio.get_event_loop().run_in_executor(
                     None, retrieve_context, user_text
                 )
             except Exception as e:
-                # If retrieval fails (e.g. Chroma not yet indexed), fall back
-                # to answering without context so the API stays responsive.
-                print(f"Retrieval error (falling back to no-context): {e}")
+                print(f"[retrieval] error: {e}")
                 context, sources = "", []
 
-            # ── 2. Build RAG prompt ───────────────────────────────────────────
-            if context:
-                prompt = build_rag_prompt(user_text, context)
-            else:
-                prompt = user_text
+            # ── 3. Build RAG prompt ───────────────────────────────────────────
+            prompt = build_rag_prompt(user_text, context) if context else user_text
 
-            # ── 3. Stream LLM response ────────────────────────────────────────
+            # ── 4. Save user turn ─────────────────────────────────────────────
+            try:
+                await asyncio.get_event_loop().run_in_executor(
+                    None, save_turn, session_id, "user", user_text
+                )
+                print(f"[memory] session={session_id[:8]}… saved user turn")
+            except Exception as e:
+                print(f"[memory] save_turn(user) error: {e}")
+
+            # ── 5. Stream LLM response ────────────────────────────────────────
             accumulated = ""
-            async for token in stream_ollama_response(prompt):
+            async for token in stream_ollama_response(prompt, history):
                 accumulated += token
-                audio_bytes = synthesize_dummy_audio(token)
-                audio_b64 = base64.b64encode(audio_bytes).decode("utf-8")
-                visemes = generate_visemes(token)
-
+                audio_b64 = base64.b64encode(synthesize_dummy_audio(token)).decode()
                 await websocket.send_json({
                     "text_chunk": token,
                     "audio_b64": audio_b64,
-                    "visemes": visemes,
+                    "visemes": generate_visemes(token),
                     "is_final": False,
                 })
 
-            # ── 4. Final message with sources ─────────────────────────────────
+            # ── 6. Save assistant turn ────────────────────────────────────────
+            try:
+                await asyncio.get_event_loop().run_in_executor(
+                    None, save_turn, session_id, "assistant", accumulated
+                )
+                print(f"[memory] session={session_id[:8]}… saved assistant turn")
+            except Exception as e:
+                print(f"[memory] save_turn(assistant) error: {e}")
+
+            # ── 7. Final message ──────────────────────────────────────────────
             await websocket.send_json({
                 "text_chunk": accumulated,
                 "audio_b64": None,
                 "visemes": [],
-                "sources": sources,   # list of {filename, subject, chapter, …}
+                "sources": sources,
                 "is_final": True,
             })
 
