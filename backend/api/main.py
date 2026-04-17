@@ -15,6 +15,7 @@ import numpy as np
 # rather than silently dropping connections at runtime.
 from api.memory import load_history, save_turn, clear_history  # noqa: E402
 from api.chain import retrieve_context                          # noqa: E402
+from api.stt import transcribe                                  # noqa: E402
 
 
 app = FastAPI(title="AI Professor API")
@@ -134,6 +135,27 @@ async def professor_ws(websocket: WebSocket):
                 continue
 
             user_text = message.get("text", "")
+
+            # ── Audio input → Whisper STT ─────────────────────────────────────
+            # If the client sends audio instead of text, transcribe it first.
+            # The rest of the pipeline is identical either way.
+            if not user_text and message.get("audio_b64"):
+                try:
+                    audio_bytes = base64.b64decode(message["audio_b64"])
+                    mime_type   = message.get("mime_type", "audio/webm")
+                    user_text   = await asyncio.get_event_loop().run_in_executor(
+                        None, transcribe, audio_bytes, mime_type
+                    )
+                    print(f"[stt] transcribed: {user_text!r}")
+                    # Echo the transcript back so the client can display it
+                    if user_text:
+                        await websocket.send_json({
+                            "transcript": user_text,
+                            "is_final": False,
+                        })
+                except Exception as e:
+                    print(f"[stt] error: {e}")
+
             if not user_text:
                 continue
 
