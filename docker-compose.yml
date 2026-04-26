@@ -48,6 +48,13 @@ services:
       - ollama-data:/root/.ollama
     environment:
       OLLAMA_KEEP_ALIVE: "24h"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
 
   spark:
     image: public.ecr.aws/bitnami/spark:3.5.3-debian-12-r3
@@ -109,24 +116,28 @@ services:
       CHROMA_PORT: "8000"
       OLLAMA_HOST: ollama
       OLLAMA_MODEL: llama3
-      # Whisper STT settings
-      # Model size: tiny | base | small | medium (small is a good balance)
-      WHISPER_MODEL: small
-      # Force a language for better accuracy ("fr", "en", "ar"…)
-      # Leave commented out to use auto-detection
+      # Whisper STT settings — medium model is fast enough on GPU
+      WHISPER_MODEL: medium
       WHISPER_LANGUAGE: fr
       # XTTS v2 TTS settings
       TTS_LANGUAGE: fr
       TTS_ENABLED: "true"
-      # Path to a short (6-30s) WAV of the professor's voice for cloning.
-      # If the file doesn't exist XTTS uses its default built-in speaker.
       TTS_SPEAKER_WAV: /app/api/reference_voice/professor.wav
+      # Bypass XTTS v2 interactive license prompt in Docker (non-commercial CPML)
+      COQUI_TOS_AGREED: "1"
     volumes:
       - ./backend:/app
     working_dir: /app
     command: uvicorn api.main:app --host 0.0.0.0 --port 8000 --reload
     ports:
       - "8000:8000"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
 
 volumes:
   pgdata:

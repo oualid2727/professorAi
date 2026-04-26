@@ -34,6 +34,21 @@ TTS_ENABLED       = os.getenv("TTS_ENABLED",        "true").lower() == "true"
 SAMPLE_RATE       = 24000  # XTTS v2 always outputs at 24 kHz
 
 
+# ── Device detection ──────────────────────────────────────────────────────────
+
+def _get_device() -> str:
+    try:
+        import torch  # noqa: PLC0415
+        if torch.cuda.is_available():
+            name = torch.cuda.get_device_name(0)
+            print(f"[tts] GPU detected: {name}")
+            return "cuda"
+    except Exception:
+        pass
+    print("[tts] No GPU detected, falling back to CPU")
+    return "cpu"
+
+
 # ── Model loading ─────────────────────────────────────────────────────────────
 # Loaded once at module import. First load downloads model weights (~1.8 GB).
 # Subsequent starts use the cached weights from ~/.local/share/tts/
@@ -49,10 +64,18 @@ def _get_tts():
         return None
 
     try:
+        import os as _os  # noqa: PLC0415
         from TTS.api import TTS  # noqa: PLC0415
-        print("[tts] Loading XTTS v2 model (first run downloads ~1.8 GB)...")
-        _tts = TTS("tts_models/multilingual/multi-dataset/xtts_v2").to("cpu")
-        print("[tts] XTTS v2 ready.")
+
+        # Bypass the interactive license prompt — XTTS v2 is non-commercial CPML.
+        # This project is for a university (non-commercial use) so CPML applies.
+        # The prompt reads stdin which is unavailable in Docker and causes EOF crash.
+        _os.environ["COQUI_TOS_AGREED"] = "1"
+
+        device = _get_device()
+        print(f"[tts] Loading XTTS v2 on {device} (first run downloads ~1.8 GB)...")
+        _tts = TTS("tts_models/multilingual/multi-dataset/xtts_v2").to(device)
+        print(f"[tts] XTTS v2 ready on {device}.")
     except Exception as e:
         print(f"[tts] Failed to load XTTS v2: {e}")
         _tts = None
@@ -123,8 +146,12 @@ def _text_to_phonemes(text: str, language: str) -> List[str]:
     Falls back to an empty list if phonemizer isn't available.
     """
     try:
-        from phonemizer import phonemize  # noqa: PLC0415
+        import logging                               # noqa: PLC0415
+        from phonemizer import phonemize            # noqa: PLC0415
         from phonemizer.separator import Separator  # noqa: PLC0415
+
+        # Suppress warnings about language switches (e.g. "Python" in French text)
+        logging.getLogger("phonemizer").setLevel(logging.ERROR)
 
         espeak_lang = _LANG_TO_ESPEAK.get(language, "fr-fr")
         sep = Separator(phone=" ", word="  ", syllable="")
@@ -136,6 +163,7 @@ def _text_to_phonemes(text: str, language: str) -> List[str]:
             separator=sep,
             strip=True,
             preserve_punctuation=False,
+            language_switch="remove-flags",  # silently drop foreign-language segments
         )
         # Split into individual phoneme tokens, filter empties
         return [p for p in result.split(" ") if p]

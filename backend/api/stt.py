@@ -28,9 +28,19 @@ from faster_whisper import WhisperModel
 _MODEL_NAME = os.getenv("WHISPER_MODEL", "small")
 _LANGUAGE   = os.getenv("WHISPER_LANGUAGE", None)  # e.g. "fr", "en", "ar" — None = auto-detect
 
-print(f"[stt] Loading Whisper model '{_MODEL_NAME}' (language={_LANGUAGE or 'auto'})...")
-_model = WhisperModel(_MODEL_NAME, device="cpu", compute_type="int8")
-print(f"[stt] Whisper '{_MODEL_NAME}' ready.")
+def _get_stt_device():
+    try:
+        import torch  # noqa: PLC0415
+        if torch.cuda.is_available():
+            return "cuda", "float16"
+    except Exception:
+        pass
+    return "cpu", "int8"
+
+_DEVICE, _COMPUTE = _get_stt_device()
+print(f"[stt] Loading Whisper '{_MODEL_NAME}' on {_DEVICE} (compute={_COMPUTE})...")
+_model = WhisperModel(_MODEL_NAME, device=_DEVICE, compute_type=_COMPUTE)
+print(f"[stt] Whisper '{_MODEL_NAME}' ready on {_DEVICE}.")
 
 
 # ── Public API ────────────────────────────────────────────────────────────────

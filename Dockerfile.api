@@ -1,13 +1,22 @@
-FROM python:3.11-slim
+# Use the official CUDA 12.1 runtime image so PyTorch can access the GPU.
+# python:3.11-slim has no CUDA — TTS and Whisper would silently fall back to CPU.
+FROM nvidia/cuda:12.1.1-cudnn8-runtime-ubuntu22.04
 
-WORKDIR /app
-
-# ffmpeg     — audio decoding for Whisper STT
-# espeak-ng  — phoneme backend for viseme generation (used by phonemizer)
+# Install Python 3.11 and system dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3.11 \
+    python3.11-dev \
+    python3-pip \
     ffmpeg \
     espeak-ng \
     && rm -rf /var/lib/apt/lists/*
+
+# Make python3.11 the default python/pip
+RUN ln -sf /usr/bin/python3.11 /usr/bin/python \
+ && ln -sf /usr/bin/python3.11 /usr/bin/python3 \
+ && ln -sf /usr/bin/pip3 /usr/bin/pip
+
+WORKDIR /app
 
 COPY backend/requirements.txt /app/requirements.txt
 
