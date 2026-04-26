@@ -18,6 +18,7 @@ from api.memory import load_history, save_turn, clear_history  # noqa: E402
 from api.chain import retrieve_context                          # noqa: E402
 from api.stt import transcribe                                  # noqa: E402
 from api.tts import synthesize                                  # noqa: E402
+from api.analytics import log_retrieval, get_confusion_heatmap, get_unanswered_questions, get_top_chunks, get_activity_summary  # noqa: E402
 
 
 app = FastAPI(title="AI Professor API")
@@ -98,7 +99,11 @@ async def stream_ollama_response(
 # We buffer tokens until a sentence boundary, then synthesize the whole sentence.
 # This gives low latency (audio starts after the first sentence) + good quality.
 
-_SENTENCE_END = re.compile(r'[.!?;:]')
+# Split on sentence endings AND commas/bullets so XTTS gets short inputs.
+# Shorter inputs synthesize much faster on CPU — a 10-word phrase takes
+# ~3s vs ~30s for a 60-word paragraph.
+_SENTENCE_END = re.compile(r'[.!?;:,*•\-]')
+_MIN_CHUNK_LEN = 20   # don't synthesize fragments shorter than this
 
 def _is_sentence_end(token: str) -> bool:
     return bool(_SENTENCE_END.search(token))
@@ -214,7 +219,7 @@ async def professor_ws(websocket: WebSocket):
                 })
 
                 # When we hit a sentence boundary, synthesize and send audio
-                if _is_sentence_end(token) and sentence_buf.strip():
+                if _is_sentence_end(token) and len(sentence_buf.strip()) >= _MIN_CHUNK_LEN:
                     try:
                         wav_bytes, visemes = await asyncio.get_event_loop().run_in_executor(
                             None, synthesize, sentence_buf.strip(), tts_lang
@@ -266,6 +271,40 @@ async def professor_ws(websocket: WebSocket):
 
     except WebSocketDisconnect:
         return
+
+
+# ── Analytics endpoints ──────────────────────────────────────────────────────
+
+@app.get("/analytics/summary")
+async def analytics_summary(days: int = 7):
+    data = await asyncio.get_event_loop().run_in_executor(
+        None, get_activity_summary, days
+    )
+    return data
+
+
+@app.get("/analytics/heatmap")
+async def analytics_heatmap(days: int = 7):
+    data = await asyncio.get_event_loop().run_in_executor(
+        None, get_confusion_heatmap, days
+    )
+    return data
+
+
+@app.get("/analytics/unanswered")
+async def analytics_unanswered(days: int = 7, limit: int = 50):
+    data = await asyncio.get_event_loop().run_in_executor(
+        None, get_unanswered_questions, days, limit
+    )
+    return data
+
+
+@app.get("/analytics/top-chunks")
+async def analytics_top_chunks(days: int = 7, limit: int = 20):
+    data = await asyncio.get_event_loop().run_in_executor(
+        None, get_top_chunks, days, limit
+    )
+    return data
 
 
 @app.get("/health")

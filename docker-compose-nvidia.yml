@@ -1,3 +1,5 @@
+version: "3.9"
+
 services:
   postgres:
     image: postgres:16
@@ -46,6 +48,13 @@ services:
       - ollama-data:/root/.ollama
     environment:
       OLLAMA_KEEP_ALIVE: "24h"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
 
   spark:
     image: public.ecr.aws/bitnami/spark:3.5.3-debian-12-r3
@@ -108,7 +117,7 @@ services:
       OLLAMA_HOST: ollama
       OLLAMA_MODEL: llama3
       # Whisper STT settings — medium model is fast enough on GPU
-      WHISPER_MODEL: small
+      WHISPER_MODEL: medium
       WHISPER_LANGUAGE: fr
       # XTTS v2 TTS settings
       TTS_LANGUAGE: fr
@@ -122,6 +131,13 @@ services:
     command: uvicorn api.main:app --host 0.0.0.0 --port 8000 --reload
     ports:
       - "8000:8000"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
 
 volumes:
   pgdata:
