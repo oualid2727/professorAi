@@ -53,23 +53,23 @@ def _get_device() -> str:
 # Loaded once at module import. First load downloads model weights (~1.8 GB).
 # Subsequent starts use the cached weights from ~/.local/share/tts/
 
+# None = not yet attempted, False = failed (don't retry), object = ready
 _tts = None
 
 def _get_tts():
     global _tts
     if _tts is not None:
-        return _tts
+        # False means it already failed — return None without retrying
+        return _tts if _tts is not False else None
 
     if not TTS_ENABLED:
+        _tts = False
         return None
 
     try:
         import os as _os  # noqa: PLC0415
         from TTS.api import TTS  # noqa: PLC0415
 
-        # Bypass the interactive license prompt — XTTS v2 is non-commercial CPML.
-        # This project is for a university (non-commercial use) so CPML applies.
-        # The prompt reads stdin which is unavailable in Docker and causes EOF crash.
         _os.environ["COQUI_TOS_AGREED"] = "1"
 
         device = _get_device()
@@ -78,9 +78,10 @@ def _get_tts():
         print(f"[tts] XTTS v2 ready on {device}.")
     except Exception as e:
         print(f"[tts] Failed to load XTTS v2: {e}")
-        _tts = None
+        print("[tts] TTS disabled for this session — responses will have no audio.")
+        _tts = False  # sentinel: don't retry on every request
 
-    return _tts
+    return _tts if _tts is not False else None
 
 
 # ── Phoneme → Viseme mapping ──────────────────────────────────────────────────

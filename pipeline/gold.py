@@ -83,6 +83,12 @@ chunk_udf = F.udf(_chunk, StringType())
 # Returns a list of floats (768 dims for nomic-embed-text).
 # Failures return a zero vector so the pipeline doesn't crash on one bad chunk.
 
+# Shared accumulator — incremented by each executor each time a chunk is embedded.
+# The driver prints progress every PROGRESS_INTERVAL chunks.
+_embed_counter = None
+PROGRESS_INTERVAL = 50
+
+
 def _embed(chunk_text: str) -> list:
     import os       # noqa: PLC0415
     import httpx    # noqa: PLC0415
@@ -98,13 +104,27 @@ def _embed(chunk_text: str) -> list:
             timeout=60,
         )
         resp.raise_for_status()
-        return [float(x) for x in resp.json()["embedding"]]
+        result = [float(x) for x in resp.json()["embedding"]]
+
+        # Increment the shared counter if available
+        if _embed_counter is not None:
+            _embed_counter.add(1)
+            current = _embed_counter.value
+            if current % PROGRESS_INTERVAL == 0:
+                print(f"  Embedded {current} chunks...", flush=True)
+
+        return result
     except Exception:
-        # Return a zero vector — chunk is kept but won't match anything in search
         return [0.0] * 768
 
 
 embed_udf = F.udf(_embed, ArrayType(FloatType()))
+
+
+def init_counter(spark) -> None:
+    """Call this from run_pipeline.py before build_gold() to enable progress printing."""
+    global _embed_counter
+    _embed_counter = spark.sparkContext.accumulator(0)
 
 
 # ── Public API ────────────────────────────────────────────────────────────────

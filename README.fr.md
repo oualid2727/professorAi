@@ -157,7 +157,11 @@ Application startup complete.
 
 ```bash
 docker compose exec spark pip install -r /opt/app/pipeline/requirements.txt
+
+docker compose exec spark pip install py4j==0.10.9.7
 ```
+
+
 
 ---
 

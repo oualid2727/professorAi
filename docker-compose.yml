@@ -112,7 +112,7 @@ services:
       WHISPER_LANGUAGE: fr
       # XTTS v2 TTS settings
       TTS_LANGUAGE: fr
-      TTS_ENABLED: "true"
+      TTS_ENABLED: "false"
       TTS_SPEAKER_WAV: /app/api/reference_voice/professor.wav
       # Bypass XTTS v2 interactive license prompt in Docker (non-commercial CPML)
       COQUI_TOS_AGREED: "1"

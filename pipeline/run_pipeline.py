@@ -8,7 +8,7 @@
 from spark_session import create_spark
 from bronze import read_landing, build_bronze
 from silver import build_silver
-from gold import build_gold
+from gold import build_gold, init_counter
 from config import BRONZE_PATH, SILVER_PATH, GOLD_PATH
 
 
@@ -42,10 +42,16 @@ def main() -> None:
     _write(silver_df, SILVER_PATH, "Silver")
 
     # ── Gold ──────────────────────────────────────────────────────────────────
+    # Init the progress counter before the slow embedding step
+    init_counter(spark)
+    print("\nStarting Gold layer (chunking + embedding)...")
+    print("Progress prints every 50 chunks — this step calls Ollama once per chunk.\n")
+
     gold_df = build_gold(silver_df)
     _write(gold_df, GOLD_PATH, "Gold")
-    print(f"         ({gold_df.count()} chunks total)")
 
+    total = gold_df.count()
+    print(f"\n  Total chunks embedded: {total}")
     print("\nPipeline complete.")
 
 

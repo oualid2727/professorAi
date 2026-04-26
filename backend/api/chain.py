@@ -2,30 +2,20 @@
 #
 # RAG chain with hybrid retrieval: vector similarity + BM25 keyword search.
 #
-# Why hybrid?
-#   - Vector search is great for semantic questions ("explain gradient descent")
-#     but misses exact terms ("what is the definition of eigenvalue").
-#   - BM25 is great for exact keyword matches but has no semantic understanding.
-#   - Combining both with equal weight gives the best of both worlds.
-#
-# Architecture:
-#   ChromaRetriever  (vector, k=5) ─┐
-#                                    ├─ EnsembleRetriever → top-5 merged docs → LLM
-#   BM25Retriever    (keyword, k=5) ─┘
+# Uses the raw chromadb client directly for both vector search and BM25 doc loading
+# — avoids the langchain-chroma package which caps at chromadb<0.6.0.
 
 import os
-from typing import List
+from typing import List, Tuple
 
 import chromadb
+import httpx
 from chromadb.config import Settings
-from langchain_community.vectorstores import Chroma
-from langchain_community.embeddings import OllamaEmbeddings
 from langchain_community.retrievers import BM25Retriever
-from langchain.retrievers import EnsembleRetriever
 from langchain_core.documents import Document
 
 
-# ── Config (read from environment, with sensible defaults) ────────────────────
+# ── Config ────────────────────────────────────────────────────────────────────
 
 CHROMA_HOST       = os.getenv("CHROMA_HOST",       "chromadb")
 CHROMA_PORT       = int(os.getenv("CHROMA_PORT",   "8000"))
@@ -34,32 +24,39 @@ OLLAMA_HOST       = os.getenv("OLLAMA_HOST",       "ollama")
 OLLAMA_PORT       = int(os.getenv("OLLAMA_PORT",   "11434"))
 EMBED_MODEL       = os.getenv("EMBED_MODEL",       "nomic-embed-text")
 
-# How many documents each retriever fetches before merging
 VECTOR_K = int(os.getenv("VECTOR_K", "5"))
 BM25_K   = int(os.getenv("BM25_K",   "5"))
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
-def _get_chroma_client():
-    return chromadb.HttpClient(
+def _get_collection():
+    client = chromadb.HttpClient(
         host=CHROMA_HOST,
         port=CHROMA_PORT,
         settings=Settings(anonymized_telemetry=False),
     )
+    return client.get_or_create_collection(
+        name=CHROMA_COLLECTION,
+        metadata={"hnsw:space": "cosine"},
+    )
 
 
-def _load_all_docs_from_chroma() -> List[Document]:
-    """
-    Fetch every document stored in the ChromaDB collection so BM25Retriever
-    can build its keyword index over the full corpus.
-    BM25 is an in-memory index — it needs all docs up front.
-    """
-    client = _get_chroma_client()
-    collection = client.get_or_create_collection(name=CHROMA_COLLECTION)
+def _embed(text: str) -> List[float]:
+    """Get embedding vector from Ollama for a query string."""
+    resp = httpx.post(
+        f"http://{OLLAMA_HOST}:{OLLAMA_PORT}/api/embeddings",
+        json={"model": EMBED_MODEL, "prompt": text},
+        timeout=60,
+    )
+    resp.raise_for_status()
+    return resp.json()["embedding"]
 
+
+def _load_all_docs() -> List[Document]:
+    """Load all documents from ChromaDB for BM25 index."""
+    collection = _get_collection()
     result = collection.get(include=["documents", "metadatas"])
-
     docs = []
     for text, meta in zip(result["documents"], result["metadatas"]):
         if text:
@@ -69,62 +66,55 @@ def _load_all_docs_from_chroma() -> List[Document]:
 
 # ── Public API ────────────────────────────────────────────────────────────────
 
-def build_retriever() -> EnsembleRetriever:
+def retrieve_context(query: str) -> Tuple[str, List[dict]]:
     """
-    Build and return a hybrid retriever that combines:
-      - ChromaDB vector similarity search  (weight 0.5)
-      - BM25 keyword search                (weight 0.5)
-
-    Both retrievers fetch k=5 documents independently.
-    EnsembleRetriever merges and deduplicates the results using
-    Reciprocal Rank Fusion before returning the final list.
+    Hybrid retrieval: vector similarity + BM25 keyword search.
+    Returns (context_text, sources).
     """
-    # ── Vector retriever ──────────────────────────────────────────────────────
-    embeddings = OllamaEmbeddings(
-        model=EMBED_MODEL,
-        base_url=f"http://{OLLAMA_HOST}:{OLLAMA_PORT}",
-    )
-    vectorstore = Chroma(
-        client=_get_chroma_client(),
-        collection_name=CHROMA_COLLECTION,
-        embedding_function=embeddings,
-    )
-    vector_retriever = vectorstore.as_retriever(
-        search_kwargs={"k": VECTOR_K}
-    )
+    collection = _get_collection()
 
-    # ── BM25 retriever ────────────────────────────────────────────────────────
-    # Load all docs from Chroma to build the BM25 index.
-    # In production with millions of docs you'd cache this; for a local
-    # professor project the full corpus fits comfortably in memory.
-    all_docs = _load_all_docs_from_chroma()
+    # ── Vector search ─────────────────────────────────────────────────────────
+    try:
+        query_embedding = _embed(query)
+        vector_results = collection.query(
+            query_embeddings=[query_embedding],
+            n_results=VECTOR_K,
+            include=["documents", "metadatas"],
+        )
+        vector_docs = [
+            Document(page_content=text, metadata=meta or {})
+            for text, meta in zip(
+                vector_results["documents"][0],
+                vector_results["metadatas"][0],
+            )
+        ]
+    except Exception as e:
+        print(f"[retrieval] vector search error: {e}")
+        vector_docs = []
 
-    if not all_docs:
-        # Collection is empty — return just the vector retriever to avoid crash
-        return vector_retriever
+    # ── BM25 keyword search ───────────────────────────────────────────────────
+    try:
+        all_docs = _load_all_docs()
+        if all_docs:
+            bm25 = BM25Retriever.from_documents(all_docs)
+            bm25.k = BM25_K
+            bm25_docs = bm25.invoke(query)
+        else:
+            bm25_docs = []
+    except Exception as e:
+        print(f"[retrieval] BM25 error: {e}")
+        bm25_docs = []
 
-    bm25_retriever = BM25Retriever.from_documents(all_docs)
-    bm25_retriever.k = BM25_K
+    # ── Merge and deduplicate ─────────────────────────────────────────────────
+    seen = set()
+    merged = []
+    for doc in vector_docs + bm25_docs:
+        key = doc.page_content[:100]
+        if key not in seen:
+            seen.add(key)
+            merged.append(doc)
 
-    # ── Ensemble ──────────────────────────────────────────────────────────────
-    # weights=[0.5, 0.5] means both retrievers contribute equally.
-    # Tune toward vector (e.g. [0.3, 0.7]) if your questions are more
-    # semantic, or toward BM25 (e.g. [0.7, 0.3]) if they use exact terms.
-    return EnsembleRetriever(
-        retrievers=[bm25_retriever, vector_retriever],
-        weights=[0.5, 0.5],
-    )
-
-
-def retrieve_context(query: str) -> tuple[str, List[dict]]:
-    """
-    Run hybrid retrieval for a query.
-    Returns:
-        context_text  — all retrieved chunks joined into one string for the prompt
-        sources       — list of metadata dicts (filename, subject, chapter…)
-    """
-    retriever = build_retriever()
-    docs = retriever.invoke(query)
+    docs = merged[:VECTOR_K]  # cap at VECTOR_K total
 
     context_text = "\n\n---\n\n".join(doc.page_content for doc in docs)
     sources = [doc.metadata for doc in docs]
