@@ -2,8 +2,8 @@
 #
 # RAG chain with hybrid retrieval: vector similarity + BM25 keyword search.
 #
-# Uses the raw chromadb client directly for both vector search and BM25 doc loading
-# — avoids the langchain-chroma package which caps at chromadb<0.6.0.
+# Uses the raw chromadb client directly — avoids langchain-chroma version conflicts.
+# BM25 index is cached in memory and only rebuilt when new docs are added.
 
 import os
 from typing import List, Tuple
@@ -27,6 +27,12 @@ EMBED_MODEL       = os.getenv("EMBED_MODEL",       "nomic-embed-text")
 VECTOR_K = int(os.getenv("VECTOR_K", "5"))
 BM25_K   = int(os.getenv("BM25_K",   "5"))
 
+# ── BM25 cache ────────────────────────────────────────────────────────────────
+# Built once, reused for every request. Only rebuilds when collection size
+# changes (i.e. after new documents are indexed into ChromaDB).
+_bm25_cache = None
+_bm25_cache_size = 0
+
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -43,7 +49,6 @@ def _get_collection():
 
 
 def _embed(text: str) -> List[float]:
-    """Get embedding vector from Ollama for a query string."""
     resp = httpx.post(
         f"http://{OLLAMA_HOST}:{OLLAMA_PORT}/api/embeddings",
         json={"model": EMBED_MODEL, "prompt": text},
@@ -54,7 +59,6 @@ def _embed(text: str) -> List[float]:
 
 
 def _load_all_docs() -> List[Document]:
-    """Load all documents from ChromaDB for BM25 index."""
     collection = _get_collection()
     result = collection.get(include=["documents", "metadatas"])
     docs = []
@@ -62,6 +66,36 @@ def _load_all_docs() -> List[Document]:
         if text:
             docs.append(Document(page_content=text, metadata=meta or {}))
     return docs
+
+
+def _get_bm25():
+    """
+    Return a cached BM25Retriever. Rebuilds only when the collection
+    size changes. First call takes ~2s; subsequent calls are instant.
+    """
+    global _bm25_cache, _bm25_cache_size
+    try:
+        collection = _get_collection()
+        current_size = collection.count()
+
+        if _bm25_cache is not None and current_size == _bm25_cache_size:
+            return _bm25_cache  # cache hit
+
+        if current_size == 0:
+            return None
+
+        print(f"[retrieval] building BM25 index over {current_size} chunks...", flush=True)
+        docs = _load_all_docs()
+        retriever = BM25Retriever.from_documents(docs)
+        retriever.k = BM25_K
+        _bm25_cache = retriever
+        _bm25_cache_size = current_size
+        print("[retrieval] BM25 index ready.", flush=True)
+        return _bm25_cache
+
+    except Exception as e:
+        print(f"[retrieval] BM25 cache error: {e}")
+        return None
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
@@ -94,13 +128,8 @@ def retrieve_context(query: str) -> Tuple[str, List[dict]]:
 
     # ── BM25 keyword search ───────────────────────────────────────────────────
     try:
-        all_docs = _load_all_docs()
-        if all_docs:
-            bm25 = BM25Retriever.from_documents(all_docs)
-            bm25.k = BM25_K
-            bm25_docs = bm25.invoke(query)
-        else:
-            bm25_docs = []
+        bm25 = _get_bm25()
+        bm25_docs = bm25.invoke(query) if bm25 else []
     except Exception as e:
         print(f"[retrieval] BM25 error: {e}")
         bm25_docs = []
@@ -114,7 +143,7 @@ def retrieve_context(query: str) -> Tuple[str, List[dict]]:
             seen.add(key)
             merged.append(doc)
 
-    docs = merged[:VECTOR_K]  # cap at VECTOR_K total
+    docs = merged[:VECTOR_K]
 
     context_text = "\n\n---\n\n".join(doc.page_content for doc in docs)
     sources = [doc.metadata for doc in docs]

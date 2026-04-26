@@ -183,6 +183,14 @@ async def professor_ws(websocket: WebSocket):
                 print(f"[retrieval] error: {e}")
                 context, sources = "", []
 
+            # ── 2b. Log retrieval for analytics dashboard ────────────────────
+            try:
+                await asyncio.get_event_loop().run_in_executor(
+                    None, log_retrieval, session_id, user_text, sources
+                )
+            except Exception as e:
+                print(f"[analytics] log_retrieval error: {e}")
+
             # ── 3. Build RAG prompt ───────────────────────────────────────────
             prompt = build_rag_prompt(user_text, context, reply_lang) if context else (
                 user_text + (f"\n\nReply in {reply_lang}." if reply_lang else "")
