@@ -1,0 +1,1185 @@
+<!--
+  backend/static/diagnostic.html
+  
+  Multi-stage RAG + CRAG pipeline diagnostic UI.
+  Single-file vanilla HTML/JS — no build step required.
+  
+  How to serve:
+    Option A — drop this file in backend/static/ and add to main.py:
+      from fastapi.staticfiles import StaticFiles
+      app.mount("/static", StaticFiles(directory="static"), name="static")
+    Then visit: http://localhost:8000/static/diagnostic.html
+    
+    Option B — open the file directly in a browser. Make sure CORS is
+    enabled on the API (already is in main.py via CORSMiddleware).
+    Edit API_BASE below if your API is not on localhost:8000.
+-->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RAG Pipeline Diagnostic — AI Professor</title>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Fraunces:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
+
+<style>
+  :root {
+    --bg-0:   #0a0b0d;
+    --bg-1:   #111316;
+    --bg-2:   #181b1f;
+    --bg-3:   #21262c;
+    --line:   #2a2f36;
+    --line-2: #3a414a;
+    --text:   #e7eaed;
+    --text-d: #a8afb8;
+    --text-m: #6c757f;
+
+    /* Stage accent colors */
+    --s1: #f5b942;   /* rewriting   — amber  */
+    --s2: #5c8cf0;   /* retrieval   — blue   */
+    --s3: #4ade80;   /* rerank      — green  */
+    --s4-good:  #4ade80;
+    --s4-warn:  #f5b942;
+    --s4-bad:   #f47272;
+    --s5: #c084fc;   /* compression — purple */
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html, body {
+    background: var(--bg-0);
+    color: var(--text);
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 14px;
+    line-height: 1.5;
+    min-height: 100vh;
+  }
+
+  body {
+    background-image:
+      radial-gradient(circle at 20% 0%, rgba(245, 185, 66, 0.04) 0%, transparent 40%),
+      radial-gradient(circle at 80% 100%, rgba(192, 132, 252, 0.04) 0%, transparent 40%);
+  }
+
+  .mono { font-family: 'JetBrains Mono', monospace; }
+  .serif { font-family: 'Fraunces', serif; font-style: italic; }
+
+  /* ── Top bar ─────────────────────────────────────────────────────────── */
+  .topbar {
+    border-bottom: 1px solid var(--line);
+    background: var(--bg-1);
+    padding: 14px 32px;
+    display: flex;
+    align-items: center;
+    gap: 24px;
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    backdrop-filter: blur(8px);
+  }
+
+  .logo {
+    font-family: 'Fraunces', serif;
+    font-size: 20px;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+  }
+  .logo span { color: var(--s1); font-style: italic; }
+
+  .breadcrumb {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--text-m);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+  }
+  .breadcrumb b { color: var(--text-d); font-weight: 500; }
+
+  .status-pill {
+    margin-left: auto;
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--text-m);
+  }
+  .status-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--s3);
+    box-shadow: 0 0 8px var(--s3);
+  }
+  .status-dot.off { background: var(--s4-bad); box-shadow: 0 0 8px var(--s4-bad); }
+
+  /* ── Main layout ─────────────────────────────────────────────────────── */
+  .container { max-width: 1400px; margin: 0 auto; padding: 32px; }
+
+  /* ── Query input ─────────────────────────────────────────────────────── */
+  .query-card {
+    background: var(--bg-1);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    padding: 28px;
+    margin-bottom: 32px;
+  }
+  .query-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    color: var(--text-m);
+    text-transform: uppercase;
+    letter-spacing: 0.18em;
+    margin-bottom: 14px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .query-label::before {
+    content: '';
+    width: 24px; height: 1px;
+    background: var(--text-m);
+  }
+  .query-row {
+    display: flex;
+    gap: 12px;
+  }
+  .query-input {
+    flex: 1;
+    background: var(--bg-0);
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    color: var(--text);
+    font-family: 'Fraunces', serif;
+    font-size: 22px;
+    padding: 16px 20px;
+    outline: none;
+    transition: border-color 0.15s;
+  }
+  .query-input:focus { border-color: var(--s1); }
+  .query-input::placeholder { color: var(--text-m); font-style: italic; }
+  .run-btn {
+    background: var(--text);
+    color: var(--bg-0);
+    border: none;
+    padding: 0 32px;
+    font-family: 'JetBrains Mono', monospace;
+    font-weight: 600;
+    font-size: 12px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    cursor: pointer;
+    border-radius: 3px;
+    transition: opacity 0.15s;
+  }
+  .run-btn:hover { opacity: 0.85; }
+  .run-btn:disabled { opacity: 0.4; cursor: wait; }
+
+  .preset-row {
+    margin-top: 16px;
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .preset {
+    background: transparent;
+    border: 1px solid var(--line);
+    color: var(--text-d);
+    padding: 6px 12px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    border-radius: 2px;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .preset:hover { border-color: var(--text-d); color: var(--text); }
+
+  /* ── Loading state ───────────────────────────────────────────────────── */
+  .loading {
+    display: none;
+    padding: 48px;
+    text-align: center;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    color: var(--text-d);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    background: var(--bg-1);
+    margin-bottom: 24px;
+  }
+  .loading.active { display: block; }
+  .loading-bar {
+    height: 2px;
+    background: var(--line);
+    margin: 24px auto 16px;
+    max-width: 320px;
+    overflow: hidden;
+    position: relative;
+  }
+  .loading-bar::after {
+    content: '';
+    position: absolute;
+    height: 100%;
+    width: 40%;
+    background: linear-gradient(90deg, transparent, var(--s1), transparent);
+    animation: slide 1.4s ease-in-out infinite;
+  }
+  @keyframes slide {
+    from { left: -40%; }
+    to { left: 100%; }
+  }
+  .loading-step { color: var(--text-m); font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; }
+
+  /* ── Stage section ───────────────────────────────────────────────────── */
+  .stage {
+    margin-bottom: 28px;
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    background: var(--bg-1);
+    overflow: hidden;
+    opacity: 0;
+    animation: fadeUp 0.5s ease forwards;
+  }
+  .stage:nth-child(1) { animation-delay: 0.05s; }
+  .stage:nth-child(2) { animation-delay: 0.15s; }
+  .stage:nth-child(3) { animation-delay: 0.25s; }
+  .stage:nth-child(4) { animation-delay: 0.35s; }
+  .stage:nth-child(5) { animation-delay: 0.45s; }
+
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(12px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  .stage-header {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 18px 24px;
+    border-bottom: 1px solid var(--line);
+    background: var(--bg-2);
+  }
+  .stage-num {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--text-m);
+    letter-spacing: 0.1em;
+  }
+  .stage-title {
+    font-family: 'Fraunces', serif;
+    font-style: italic;
+    font-size: 22px;
+    font-weight: 400;
+  }
+  .stage-meta {
+    margin-left: auto;
+    display: flex;
+    gap: 18px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--text-m);
+  }
+  .stage-meta b { color: var(--text); font-weight: 500; }
+  .stage-body { padding: 24px; }
+
+  /* Stage accent bars on the left edge */
+  .stage[data-stage="1"] { border-left: 3px solid var(--s1); }
+  .stage[data-stage="2"] { border-left: 3px solid var(--s2); }
+  .stage[data-stage="3"] { border-left: 3px solid var(--s3); }
+  .stage[data-stage="4"] { border-left: 3px solid var(--s5); }
+  .stage[data-stage="4"][data-grade="correct"]   { border-left-color: var(--s4-good); }
+  .stage[data-stage="4"][data-grade="ambiguous"] { border-left-color: var(--s4-warn); }
+  .stage[data-stage="4"][data-grade="incorrect"] { border-left-color: var(--s4-bad);  }
+  .stage[data-stage="5"] { border-left: 3px solid var(--s5); }
+
+  /* ── Rewrites (stage 1) ──────────────────────────────────────────────── */
+  .rewrite-list { display: flex; flex-direction: column; gap: 10px; }
+  .rewrite-item {
+    padding: 14px 18px;
+    background: var(--bg-2);
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    font-family: 'Fraunces', serif;
+    font-size: 16px;
+    display: flex;
+    align-items: flex-start;
+    gap: 16px;
+    line-height: 1.5;
+  }
+  .rewrite-tag {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    color: var(--s1);
+    background: rgba(245, 185, 66, 0.1);
+    border: 1px solid rgba(245, 185, 66, 0.3);
+    padding: 3px 8px;
+    border-radius: 2px;
+    flex-shrink: 0;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    font-style: normal;
+    margin-top: 2px;
+  }
+  .rewrite-tag.origin {
+    color: var(--text);
+    border-color: var(--text-m);
+    background: var(--bg-3);
+  }
+  .rewrite-tag.hyde {
+    color: var(--s5);
+    background: rgba(192, 132, 252, 0.1);
+    border-color: rgba(192, 132, 252, 0.3);
+  }
+
+  /* ── Retrieval (stage 2) ─────────────────────────────────────────────── */
+  .retrieval-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 24px;
+  }
+  .retrieval-summary { display: flex; flex-direction: column; gap: 10px; }
+  .summary-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 14px;
+    background: var(--bg-2);
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+  }
+  .summary-row .qtext {
+    color: var(--text-d);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 60%;
+  }
+  .summary-row .qcount {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    color: var(--text-m);
+    font-size: 11px;
+  }
+  .summary-row .new-count {
+    color: var(--s2);
+    font-weight: 600;
+  }
+
+  .retrieval-stats {
+    background: var(--bg-2);
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+    justify-content: center;
+  }
+  .big-stat {
+    font-family: 'JetBrains Mono', monospace;
+  }
+  .big-stat .num {
+    font-size: 36px;
+    font-weight: 600;
+    color: var(--s2);
+    line-height: 1;
+  }
+  .big-stat .lbl {
+    font-size: 10px;
+    color: var(--text-m);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    margin-top: 4px;
+  }
+  .big-stat .sub { color: var(--text-d); font-size: 12px; margin-top: 6px; }
+
+  /* ── Reranked table (stage 3) ────────────────────────────────────────── */
+  .rerank-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+  }
+  .rerank-table th {
+    text-align: left;
+    color: var(--text-m);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    font-size: 10px;
+    font-weight: 500;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--line);
+  }
+  .rerank-table td {
+    padding: 14px;
+    border-bottom: 1px solid var(--line);
+    vertical-align: top;
+  }
+  .rerank-table tr:last-child td { border-bottom: none; }
+  .rerank-table tr:hover td { background: var(--bg-2); }
+  .rerank-table .rank {
+    color: var(--s3);
+    font-weight: 600;
+    font-size: 14px;
+  }
+  .rerank-table .preview {
+    font-family: 'Fraunces', serif;
+    font-size: 13px;
+    color: var(--text);
+    max-width: 480px;
+    line-height: 1.55;
+  }
+  .rerank-table .src {
+    color: var(--text-m);
+    font-size: 11px;
+  }
+  .rerank-table .src b { color: var(--text-d); font-weight: 500; }
+
+  .score-cell {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 100px;
+  }
+  .score-num {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--s3);
+  }
+  .score-num.low { color: var(--text-m); }
+  .score-num.bad { color: var(--s4-bad); }
+  .score-bar {
+    height: 3px;
+    background: var(--bg-3);
+    border-radius: 2px;
+    overflow: hidden;
+  }
+  .score-bar-fill {
+    height: 100%;
+    background: var(--s3);
+    transition: width 0.4s ease;
+  }
+  .score-bar-fill.low { background: var(--text-m); }
+  .score-bar-fill.bad { background: var(--s4-bad); }
+
+  /* ── CRAG (stage 4) ──────────────────────────────────────────────────── */
+  .crag-grid {
+    display: grid;
+    grid-template-columns: 280px 1fr;
+    gap: 28px;
+    align-items: stretch;
+  }
+  .crag-verdict {
+    background: var(--bg-2);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    padding: 28px 24px;
+    text-align: center;
+  }
+  .crag-grade-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    color: var(--text-m);
+    text-transform: uppercase;
+    letter-spacing: 0.18em;
+    margin-bottom: 18px;
+  }
+  .crag-grade {
+    font-family: 'Fraunces', serif;
+    font-style: italic;
+    font-size: 38px;
+    font-weight: 700;
+    margin-bottom: 6px;
+  }
+  .crag-grade.correct   { color: var(--s4-good); }
+  .crag-grade.ambiguous { color: var(--s4-warn); }
+  .crag-grade.incorrect { color: var(--s4-bad);  }
+  .crag-action {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--text-d);
+    margin-top: 14px;
+    padding-top: 14px;
+    border-top: 1px solid var(--line);
+    line-height: 1.6;
+  }
+
+  .crag-explainer {
+    background: var(--bg-2);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    padding: 24px;
+  }
+  .crag-decision-bar {
+    position: relative;
+    height: 80px;
+    margin: 24px 0;
+  }
+  .crag-axis {
+    position: absolute;
+    top: 38px;
+    left: 0; right: 0;
+    height: 4px;
+    background: linear-gradient(90deg,
+      var(--s4-bad) 0%,
+      var(--s4-bad) 30%,
+      var(--s4-warn) 30%,
+      var(--s4-warn) 70%,
+      var(--s4-good) 70%,
+      var(--s4-good) 100%
+    );
+    border-radius: 2px;
+  }
+  .crag-axis-label {
+    position: absolute;
+    top: 50px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    color: var(--text-m);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    transform: translateX(-50%);
+  }
+  .crag-marker {
+    position: absolute;
+    top: 18px;
+    width: 2px;
+    height: 44px;
+    background: var(--text);
+    transform: translateX(-50%);
+  }
+  .crag-marker::before {
+    content: '';
+    position: absolute;
+    top: -8px; left: -7px;
+    width: 16px; height: 16px;
+    background: var(--text);
+    border-radius: 50%;
+    border: 3px solid var(--bg-2);
+  }
+  .crag-marker-label {
+    position: absolute;
+    top: -22px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text);
+    white-space: nowrap;
+  }
+
+  .crag-meta {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 14px;
+    margin-top: 24px;
+    padding-top: 20px;
+    border-top: 1px solid var(--line);
+  }
+  .crag-meta-cell {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+  }
+  .crag-meta-cell .lbl {
+    color: var(--text-m);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    font-size: 9px;
+    margin-bottom: 4px;
+  }
+  .crag-meta-cell .val { color: var(--text); font-size: 14px; font-weight: 500; }
+
+  /* ── Compression (stage 5) ───────────────────────────────────────────── */
+  .compress-list { display: flex; flex-direction: column; gap: 16px; }
+  .compress-item {
+    background: var(--bg-2);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    overflow: hidden;
+  }
+  .compress-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 18px;
+    border-bottom: 1px solid var(--line);
+    background: var(--bg-3);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--text-d);
+  }
+  .compress-header .src b { color: var(--text); font-weight: 500; }
+  .reduction-pill {
+    color: var(--s5);
+    background: rgba(192, 132, 252, 0.12);
+    border: 1px solid rgba(192, 132, 252, 0.3);
+    padding: 3px 10px;
+    border-radius: 2px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+  }
+  .reduction-pill.zero { color: var(--text-m); border-color: var(--line); background: transparent; }
+  .compress-diff {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0;
+  }
+  .compress-side {
+    padding: 18px;
+    font-family: 'Fraunces', serif;
+    font-size: 13px;
+    line-height: 1.65;
+    max-height: 240px;
+    overflow-y: auto;
+  }
+  .compress-side.before {
+    border-right: 1px solid var(--line);
+    color: var(--text-m);
+    background: rgba(244, 114, 114, 0.03);
+  }
+  .compress-side.after {
+    color: var(--text);
+    background: rgba(74, 222, 128, 0.03);
+  }
+  .side-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    margin-bottom: 10px;
+    font-style: normal;
+  }
+  .compress-side.before .side-label { color: var(--s4-bad); }
+  .compress-side.after .side-label { color: var(--s4-good); }
+
+  /* ── Empty / error states ────────────────────────────────────────────── */
+  .empty {
+    text-align: center;
+    padding: 32px;
+    color: var(--text-m);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+  }
+  .error-box {
+    border: 1px solid var(--s4-bad);
+    background: rgba(244, 114, 114, 0.05);
+    color: var(--s4-bad);
+    padding: 16px 20px;
+    border-radius: 3px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    margin-bottom: 24px;
+  }
+
+  /* ── Total timing footer ─────────────────────────────────────────────── */
+  .timing-footer {
+    margin-top: 32px;
+    padding: 20px 24px;
+    background: var(--bg-1);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--text-m);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+  }
+  .timing-bars {
+    display: flex;
+    flex: 1;
+    margin: 0 24px;
+    height: 8px;
+    border-radius: 2px;
+    overflow: hidden;
+    background: var(--bg-3);
+  }
+  .timing-segment {
+    height: 100%;
+    transition: width 0.4s ease;
+  }
+
+  /* ── Responsive ──────────────────────────────────────────────────────── */
+  @media (max-width: 900px) {
+    .retrieval-grid, .crag-grid, .compress-diff { grid-template-columns: 1fr; }
+    .container { padding: 16px; }
+    .stage-header { flex-wrap: wrap; gap: 8px; }
+    .stage-meta { width: 100%; margin-left: 0; }
+  }
+
+  /* Scrollbar */
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-track { background: var(--bg-1); }
+  ::-webkit-scrollbar-thumb { background: var(--line-2); border-radius: 5px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--text-m); }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="logo">RAG<span>·</span>scope</div>
+  <div class="breadcrumb">PFE / <b>AI Professor</b> / Pipeline Diagnostic</div>
+  <div class="status-pill">
+    <span id="apiStatus">checking api…</span>
+    <span class="status-dot" id="statusDot"></span>
+  </div>
+</div>
+
+<div class="container">
+
+  <!-- Query input -->
+  <div class="query-card">
+    <div class="query-label">Student Query</div>
+    <div class="query-row">
+      <input
+        id="queryInput"
+        class="query-input"
+        type="text"
+        placeholder="What does the central limit theorem say about sample means?"
+        autofocus
+      >
+      <button id="runBtn" class="run-btn">Trace</button>
+    </div>
+    <div class="preset-row">
+      <button class="preset" data-q="Explain the central limit theorem">Explain CLT</button>
+      <button class="preset" data-q="What is a vector space?">Vector space</button>
+      <button class="preset" data-q="Qu'est-ce que l'intégrale de Riemann ?">Intégrale Riemann (FR)</button>
+      <button class="preset" data-q="Tell me about the football world cup 2026">Out of scope</button>
+    </div>
+  </div>
+
+  <!-- Loading -->
+  <div class="loading" id="loading">
+    <div class="loading-step" id="loadingStep">Running pipeline…</div>
+    <div class="loading-bar"></div>
+    <div class="loading-step" style="font-size: 10px; opacity: 0.6;">
+      Rewriting · Retrieving · Reranking · Evaluating · Compressing
+    </div>
+  </div>
+
+  <!-- Error -->
+  <div id="errorBox" class="error-box" style="display: none;"></div>
+
+  <!-- Stages get rendered here -->
+  <div id="stages"></div>
+
+  <!-- Total timing -->
+  <div id="timingFooter" class="timing-footer" style="display: none;">
+    <span>Total Pipeline</span>
+    <div class="timing-bars" id="timingBars"></div>
+    <span id="totalMs"></span>
+  </div>
+
+</div>
+
+<script>
+  // ── Config ─────────────────────────────────────────────────────────────
+  const API_BASE = 'http://localhost:8000';
+
+  // ── Stage colors (must match CSS) ──────────────────────────────────────
+  const STAGE_COLORS = {
+    rewrite_ms:   '#f5b942',
+    retrieval_ms: '#5c8cf0',
+    rerank_ms:    '#4ade80',
+    crag_ms:      '#c084fc',
+    compress_ms:  '#a78bfa',
+  };
+
+  // ── API health check ───────────────────────────────────────────────────
+  async function checkApi() {
+    const dot = document.getElementById('statusDot');
+    const txt = document.getElementById('apiStatus');
+    try {
+      const res = await fetch(`${API_BASE}/health`);
+      if (res.ok) {
+        txt.textContent = 'api online';
+        dot.classList.remove('off');
+      } else throw new Error();
+    } catch {
+      txt.textContent = 'api offline';
+      dot.classList.add('off');
+    }
+  }
+  checkApi();
+
+  // ── Run trace ──────────────────────────────────────────────────────────
+  async function runTrace() {
+    const query = document.getElementById('queryInput').value.trim();
+    if (!query) return;
+
+    const stagesEl = document.getElementById('stages');
+    const loadingEl = document.getElementById('loading');
+    const errorEl   = document.getElementById('errorBox');
+    const footerEl  = document.getElementById('timingFooter');
+    const btn       = document.getElementById('runBtn');
+
+    stagesEl.innerHTML = '';
+    errorEl.style.display = 'none';
+    footerEl.style.display = 'none';
+    loadingEl.classList.add('active');
+    btn.disabled = true;
+
+    try {
+      const res = await fetch(`${API_BASE}/diagnostic/trace`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query }),
+      });
+
+      if (!res.ok) throw new Error(`API returned ${res.status}`);
+      const trace = await res.json();
+      if (trace.error) throw new Error(trace.error);
+
+      loadingEl.classList.remove('active');
+      renderTrace(trace);
+    } catch (err) {
+      loadingEl.classList.remove('active');
+      errorEl.textContent = `Error: ${err.message}. Make sure the API is running on ${API_BASE}.`;
+      errorEl.style.display = 'block';
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  document.getElementById('runBtn').addEventListener('click', runTrace);
+  document.getElementById('queryInput').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') runTrace();
+  });
+  document.querySelectorAll('.preset').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.getElementById('queryInput').value = btn.dataset.q;
+      runTrace();
+    });
+  });
+
+  // ── Render ─────────────────────────────────────────────────────────────
+  function escape(s) {
+    return String(s).replace(/[&<>"']/g, c => ({
+      '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+    }[c]));
+  }
+
+  function fmt(ms) {
+    if (ms == null) return '—';
+    if (ms < 1000) return `${ms} ms`;
+    return `${(ms / 1000).toFixed(2)} s`;
+  }
+
+  function renderTrace(t) {
+    const stagesEl = document.getElementById('stages');
+    stagesEl.innerHTML = [
+      renderStage1(t),
+      renderStage2(t),
+      renderStage3(t),
+      renderStage4(t),
+      renderStage5(t),
+    ].join('');
+
+    renderTimingFooter(t);
+  }
+
+  // ── Stage 1: Rewrites ──────────────────────────────────────────────────
+  function renderStage1(t) {
+    const items = (t.rewrites || []).map(r => {
+      let tag = 'rewrite';
+      let cls = '';
+      if (r.is_origin)    { tag = 'origin'; cls = 'origin'; }
+      else if (r.is_hyde) { tag = 'hyde';   cls = 'hyde';   }
+      return `
+        <div class="rewrite-item">
+          <span class="rewrite-tag ${cls}">${tag}</span>
+          <span>${escape(r.text)}</span>
+        </div>
+      `;
+    }).join('');
+
+    return `
+      <section class="stage" data-stage="1">
+        <header class="stage-header">
+          <span class="stage-num">STAGE 01</span>
+          <h2 class="stage-title">Query rewriting</h2>
+          <div class="stage-meta">
+            <span><b>${(t.rewrites || []).length}</b> queries generated</span>
+            <span><b>${fmt(t.timings?.rewrite_ms)}</b></span>
+          </div>
+        </header>
+        <div class="stage-body">
+          <div class="rewrite-list">${items || '<div class="empty">No rewrites generated.</div>'}</div>
+        </div>
+      </section>
+    `;
+  }
+
+  // ── Stage 2: Retrieval ─────────────────────────────────────────────────
+  function renderStage2(t) {
+    const r = t.retrieval || {};
+    const perQuery = (r.per_query || []).map(p => `
+      <div class="summary-row">
+        <span class="qtext">${escape(p.query)}</span>
+        <span class="qcount">
+          <span>retrieved <b style="color: var(--text-d);">${p.retrieved}</b></span>
+          <span class="new-count">+${p.new}</span>
+        </span>
+      </div>
+    `).join('') || '<div class="empty">No queries.</div>';
+
+    return `
+      <section class="stage" data-stage="2">
+        <header class="stage-header">
+          <span class="stage-num">STAGE 02</span>
+          <h2 class="stage-title">Hybrid retrieval</h2>
+          <div class="stage-meta">
+            <span><b>${r.unique_candidates || 0}</b> unique chunks</span>
+            <span><b>${fmt(t.timings?.retrieval_ms)}</b></span>
+          </div>
+        </header>
+        <div class="stage-body">
+          <div class="retrieval-grid">
+            <div class="retrieval-summary">${perQuery}</div>
+            <div class="retrieval-stats">
+              <div class="big-stat">
+                <div class="num">${r.unique_candidates || 0}</div>
+                <div class="lbl">unique candidates</div>
+                <div class="sub">deduped from ${r.total_with_dupes || 0} total retrievals</div>
+              </div>
+              <div class="big-stat">
+                <div class="num" style="color: var(--text-d); font-size: 22px;">
+                  vector + bm25
+                </div>
+                <div class="lbl">retrieval modes merged</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+    `;
+  }
+
+  // ── Stage 3: Reranking ─────────────────────────────────────────────────
+  function renderStage3(t) {
+    const ranked = t.reranked || [];
+    if (!ranked.length) {
+      return `
+        <section class="stage" data-stage="3">
+          <header class="stage-header">
+            <span class="stage-num">STAGE 03</span>
+            <h2 class="stage-title">Cross-encoder reranking</h2>
+          </header>
+          <div class="stage-body"><div class="empty">No candidates to rerank.</div></div>
+        </section>
+      `;
+    }
+
+    const maxScore = Math.max(...ranked.map(r => Math.abs(r.score)), 1);
+
+    const rows = ranked.map(r => {
+      const pct = Math.max(0, Math.min(100, (r.score / maxScore) * 100));
+      let scoreCls = '';
+      if (r.score < 0)        scoreCls = 'bad';
+      else if (r.score < 1)   scoreCls = 'low';
+
+      return `
+        <tr>
+          <td class="rank">#${r.rank}</td>
+          <td>
+            <div class="preview">${escape(r.preview)}</div>
+            <div class="src" style="margin-top: 6px;">
+              <b>${escape(r.metadata.subject || '—')}</b>
+              ${r.metadata.chapter ? '· ' + escape(r.metadata.chapter) : ''}
+              ${r.metadata.filename ? '· ' + escape(r.metadata.filename) : ''}
+            </div>
+          </td>
+          <td>
+            <div class="score-cell">
+              <span class="score-num ${scoreCls}">${r.score.toFixed(3)}</span>
+              <div class="score-bar">
+                <div class="score-bar-fill ${scoreCls}" style="width: ${Math.abs(pct)}%;"></div>
+              </div>
+            </div>
+          </td>
+        </tr>
+      `;
+    }).join('');
+
+    return `
+      <section class="stage" data-stage="3">
+        <header class="stage-header">
+          <span class="stage-num">STAGE 03</span>
+          <h2 class="stage-title">Cross-encoder reranking</h2>
+          <div class="stage-meta">
+            <span>top score <b>${ranked[0].score.toFixed(3)}</b></span>
+            <span><b>${fmt(t.timings?.rerank_ms)}</b></span>
+          </div>
+        </header>
+        <div class="stage-body">
+          <table class="rerank-table">
+            <thead>
+              <tr><th style="width: 60px;">Rank</th><th>Chunk</th><th style="width: 140px;">Score</th></tr>
+            </thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>
+      </section>
+    `;
+  }
+
+  // ── Stage 4: CRAG ──────────────────────────────────────────────────────
+  function renderStage4(t) {
+    const grade = t.grade || 'ambiguous';
+    const action = {
+      correct:   'Pass full course context to LLM.',
+      ambiguous: 'Generate with hedge — flag uncovered aspects.',
+      incorrect: 'Refuse honestly — no fabrication from priors.',
+    }[grade];
+
+    // Decision bar position: clamp max_score to a reasonable range for display
+    const score = t.max_score ?? 0;
+    const minRange = -6, maxRange = 6;
+    const clamped = Math.max(minRange, Math.min(maxRange, score));
+    const position = ((clamped - minRange) / (maxRange - minRange)) * 100;
+
+    // Threshold positions
+    const thresh = t.grade_thresholds || { correct: 2.0, incorrect: -2.0 };
+    const incPos = ((thresh.incorrect - minRange) / (maxRange - minRange)) * 100;
+    const corPos = ((thresh.correct - minRange) / (maxRange - minRange)) * 100;
+
+    return `
+      <section class="stage" data-stage="4" data-grade="${grade}">
+        <header class="stage-header">
+          <span class="stage-num">STAGE 04</span>
+          <h2 class="stage-title">CRAG evaluator</h2>
+          <div class="stage-meta">
+            <span>mode <b>${escape(t.config?.crag_mode || 'score')}</b></span>
+            <span><b>${fmt(t.timings?.crag_ms)}</b></span>
+          </div>
+        </header>
+        <div class="stage-body">
+          <div class="crag-grid">
+            <div class="crag-verdict">
+              <div class="crag-grade-label">verdict</div>
+              <div class="crag-grade ${grade}">${grade}</div>
+              <div class="crag-action">${action}</div>
+            </div>
+            <div class="crag-explainer">
+              <div class="crag-grade-label">decision space</div>
+              <div class="crag-decision-bar">
+                <div class="crag-axis"></div>
+                <div class="crag-axis-label" style="left: ${incPos}%;">refuse · ${thresh.incorrect}</div>
+                <div class="crag-axis-label" style="left: ${corPos}%;">accept · ${thresh.correct}</div>
+                <div class="crag-marker" style="left: ${position}%;">
+                  <span class="crag-marker-label">${score.toFixed(2)}</span>
+                </div>
+              </div>
+              <div class="crag-meta">
+                <div class="crag-meta-cell">
+                  <div class="lbl">max rerank score</div>
+                  <div class="val">${score.toFixed(3)}</div>
+                </div>
+                <div class="crag-meta-cell">
+                  <div class="lbl">refuse if &lt;</div>
+                  <div class="val">${thresh.incorrect}</div>
+                </div>
+                <div class="crag-meta-cell">
+                  <div class="lbl">accept if &gt;</div>
+                  <div class="val">${thresh.correct}</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+    `;
+  }
+
+  // ── Stage 5: Compression ───────────────────────────────────────────────
+  function renderStage5(t) {
+    const items = (t.compressed || []).map(c => `
+      <div class="compress-item">
+        <div class="compress-header">
+          <div class="src">
+            <b>${escape(c.metadata.subject || '—')}</b>
+            ${c.metadata.chapter ? '· ' + escape(c.metadata.chapter) : ''}
+            ${c.metadata.filename ? '· ' + escape(c.metadata.filename) : ''}
+          </div>
+          <span class="reduction-pill ${c.reduction_pct === 0 ? 'zero' : ''}">
+            -${c.reduction_pct}% · ${c.before_length}→${c.after_length} chars
+          </span>
+        </div>
+        <div class="compress-diff">
+          <div class="compress-side before">
+            <div class="side-label">Before</div>
+            ${escape(c.before)}
+          </div>
+          <div class="compress-side after">
+            <div class="side-label">After (sent to LLM)</div>
+            ${escape(c.after) || '<i style="color: var(--text-m);">empty</i>'}
+          </div>
+        </div>
+      </div>
+    `).join('');
+
+    let body;
+    if (t.grade === 'incorrect') {
+      body = `<div class="empty">Compression skipped — CRAG verdict was <b style="color: var(--s4-bad);">incorrect</b>.<br>The LLM will receive the refusal prompt, not course material.</div>`;
+    } else if (!items) {
+      body = '<div class="empty">No compression performed.</div>';
+    } else {
+      body = `<div class="compress-list">${items}</div>`;
+    }
+
+    const totalReduction = (t.compressed || []).length
+      ? Math.round((t.compressed.reduce((a, c) => a + c.reduction_pct, 0)) / t.compressed.length)
+      : 0;
+
+    return `
+      <section class="stage" data-stage="5">
+        <header class="stage-header">
+          <span class="stage-num">STAGE 05</span>
+          <h2 class="stage-title">Contextual compression</h2>
+          <div class="stage-meta">
+            ${t.grade !== 'incorrect' ? `<span>avg reduction <b>${totalReduction}%</b></span>` : ''}
+            <span><b>${fmt(t.timings?.compress_ms)}</b></span>
+          </div>
+        </header>
+        <div class="stage-body">${body}</div>
+      </section>
+    `;
+  }
+
+  // ── Total timing footer ────────────────────────────────────────────────
+  function renderTimingFooter(t) {
+    const footer = document.getElementById('timingFooter');
+    const bars   = document.getElementById('timingBars');
+    const total  = document.getElementById('totalMs');
+
+    const stages = [
+      { key: 'rewrite_ms',   label: 'rewrite' },
+      { key: 'retrieval_ms', label: 'retrieve' },
+      { key: 'rerank_ms',    label: 'rerank' },
+      { key: 'crag_ms',      label: 'crag' },
+      { key: 'compress_ms',  label: 'compress' },
+    ];
+    const totalMs = stages.reduce((a, s) => a + (t.timings?.[s.key] || 0), 0);
+    if (totalMs === 0) return;
+
+    bars.innerHTML = stages.map(s => {
+      const ms = t.timings?.[s.key] || 0;
+      const w = (ms / totalMs) * 100;
+      return `<div class="timing-segment" style="width: ${w}%; background: ${STAGE_COLORS[s.key]};" title="${s.label} ${ms}ms"></div>`;
+    }).join('');
+
+    total.textContent = fmt(totalMs);
+    footer.style.display = 'flex';
+  }
+</script>
+
+</body>
+</html>

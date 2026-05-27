@@ -1,3 +1,8 @@
+# docker-compose.yml
+#
+# Updated with multi-stage RAG + CRAG environment variables.
+# Look for the "Multi-stage RAG settings" block in the api service.
+
 services:
   postgres:
     image: postgres:16
@@ -73,7 +78,6 @@ services:
       AIRFLOW__CORE__SQL_ALCHEMY_CONN: postgresql+psycopg2://ai_prof:ai_prof_pw@postgres:5432/ai_prof_db
       AIRFLOW__CORE__LOAD_EXAMPLES: "False"
       AIRFLOW__WEBSERVER__RBAC: "True"
-      # Filesystem connection used by the FileSensor in professor_pipeline DAG
       AIRFLOW_CONN_FS_LANDING: '{"conn_type": "fs", "extra": {"path": "/opt/app/data/landing"}}'
     user: "50000:0"
     volumes:
@@ -81,7 +85,6 @@ services:
       - ./airflow/logs:/opt/airflow/logs
       - ./airflow/plugins:/opt/airflow/plugins
       - ./data:/opt/app/data
-      # Docker socket — lets Airflow run `docker exec` into the Spark container
       - /var/run/docker.sock:/var/run/docker.sock
     ports:
       - "8080:8080"
@@ -107,15 +110,31 @@ services:
       CHROMA_PORT: "8000"
       OLLAMA_HOST: ollama
       OLLAMA_MODEL: llama3
-      # Whisper STT settings — medium model is fast enough on GPU
+      # Whisper STT
       WHISPER_MODEL: small
       WHISPER_LANGUAGE: fr
-      # XTTS v2 TTS settings
+      # XTTS v2 TTS
       TTS_LANGUAGE: fr
       TTS_ENABLED: "false"
       TTS_SPEAKER_WAV: /app/api/reference_voice/professor.wav
-      # Bypass XTTS v2 interactive license prompt in Docker (non-commercial CPML)
       COQUI_TOS_AGREED: "1"
+
+      # ── Multi-stage RAG settings ──────────────────────────────────────────
+      MULTISTAGE_ENABLED:   "true"
+      NUM_REWRITES:         "3"
+      CANDIDATES_PER_QUERY: "10"
+      RERANKER_MODEL:       "BAAI/bge-reranker-v2-m3"
+      RERANK_TOP_K:         "5"
+      COMPRESS_THRESHOLD:   "0.55"
+      COMPRESS_MIN_SENTENCES: "2"
+
+      # ── CRAG settings ─────────────────────────────────────────────────────
+      # Mode: 'score' (uses reranker scores, fast) or 'llm' (asks Llama 3, slower)
+      CRAG_MODE:               "score"
+      # Logit thresholds for bge-reranker-v2-m3 (raw, before sigmoid)
+      CRAG_CORRECT_THRESHOLD:  "2.0"
+      CRAG_INCORRECT_THRESHOLD: "-2.0"
+
     volumes:
       - ./backend:/app
     working_dir: /app

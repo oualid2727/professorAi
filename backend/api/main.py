@@ -1,6 +1,6 @@
 # backend/api/main.py
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect,Body
 from fastapi.middleware.cors import CORSMiddleware
 from typing import List, Dict, Any
 import asyncio
@@ -12,13 +12,19 @@ import re
 import httpx
 
 # ── Import local modules at startup so errors surface in logs immediately ─────
-# If any of these fail the server will refuse to start with a clear traceback,
-# rather than silently dropping connections at runtime.
 from api.memory import load_history, save_turn, clear_history  # noqa: E402
 from api.chain import retrieve_context                          # noqa: E402
+from api.crag import get_prompt_suffix                          # noqa: E402
 from api.stt import transcribe                                  # noqa: E402
 from api.tts import synthesize                                  # noqa: E402
-from api.analytics import log_retrieval, get_confusion_heatmap, get_unanswered_questions, get_top_chunks, get_activity_summary  # noqa: E402
+from api.analytics import (                                     # noqa: E402
+    log_retrieval,
+    get_confusion_heatmap,
+    get_unanswered_questions,
+    get_top_chunks,
+    get_activity_summary,
+)
+from api.trace import trace_query
 
 
 app = FastAPI(title="AI Professor API")
@@ -34,13 +40,29 @@ app.add_middleware(
 
 # ── RAG prompt builder ────────────────────────────────────────────────────────
 
-def build_rag_prompt(question: str, context: str, language: str = "") -> str:
+def build_rag_prompt(question: str, context: str, language: str = "", grade: str = "correct") -> str:
+    """
+    Build the prompt sent to Llama 3. The CRAG grade decides whether to
+    append a refusal suffix ('incorrect'), a hedge suffix ('ambiguous'),
+    or nothing ('correct').
+    """
     lang_instruction = f"Reply in {language}." if language else ""
-    return (
+    base = (
         f"Use the following course material to answer the student's question.\n\n"
         f"--- COURSE CONTEXT ---\n{context}\n--- END CONTEXT ---\n\n"
         f"Student question: {question}\n\n"
         f"{lang_instruction}"
+    )
+    return base + get_prompt_suffix(grade)
+
+
+def build_refusal_prompt(question: str, language: str = "") -> str:
+    """Used when CRAG grade is 'incorrect' — no context available at all."""
+    lang_instruction = f"Reply in {language}." if language else ""
+    return (
+        f"Student question: {question}\n\n"
+        f"{lang_instruction}"
+        + get_prompt_suffix("incorrect")
     )
 
 
@@ -51,10 +73,7 @@ async def stream_ollama_response(
     history: List[Dict[str, str]],
     model: str = "llama3",
 ):
-    """
-    Stream tokens from local Ollama.
-    history is injected between the system prompt and the current turn.
-    """
+    """Stream tokens from local Ollama with conversation history."""
     url = "http://ollama:11434/api/chat"
 
     messages = [
@@ -94,16 +113,10 @@ async def stream_ollama_response(
                     yield content
 
 
-# ── Sentence buffering ───────────────────────────────────────────────────────
-# XTTS v2 synthesizes a full sentence at a time — not per token.
-# We buffer tokens until a sentence boundary, then synthesize the whole sentence.
-# This gives low latency (audio starts after the first sentence) + good quality.
+# ── Sentence buffering for TTS streaming ─────────────────────────────────────
 
-# Split on sentence endings AND commas/bullets so XTTS gets short inputs.
-# Shorter inputs synthesize much faster on CPU — a 10-word phrase takes
-# ~3s vs ~30s for a 60-word paragraph.
 _SENTENCE_END = re.compile(r'[.!?;:,*•\-]')
-_MIN_CHUNK_LEN = 20   # don't synthesize fragments shorter than this
+_MIN_CHUNK_LEN = 20
 
 def _is_sentence_end(token: str) -> bool:
     return bool(_SENTENCE_END.search(token))
@@ -135,11 +148,9 @@ async def professor_ws(websocket: WebSocket):
                 continue
 
             user_text  = message.get("text", "")
-            reply_lang = ""   # filled below for audio input, empty for text input
+            reply_lang = ""
 
             # ── Audio input → Whisper STT ─────────────────────────────────────
-            # If the client sends audio instead of text, transcribe it first.
-            # The rest of the pipeline is identical either way.
             if not user_text and message.get("audio_b64"):
                 try:
                     audio_bytes = base64.b64decode(message["audio_b64"])
@@ -148,14 +159,11 @@ async def professor_ws(websocket: WebSocket):
                         None, transcribe, audio_bytes, mime_type
                     )
                     print(f"[stt] transcribed: {user_text!r}")
-                    # Echo the transcript back so the client can display it
                     if user_text:
                         await websocket.send_json({
                             "transcript": user_text,
                             "is_final": False,
                         })
-                    # Tell the LLM which language to reply in — avoids it
-                    # drifting to English when the RAG context is in English.
                     configured = os.getenv("WHISPER_LANGUAGE", "")
                     reply_lang = configured if configured else "the same language as the student"
                 except Exception as e:
@@ -174,14 +182,14 @@ async def professor_ws(websocket: WebSocket):
                 print(f"[memory] load_history error: {e}")
                 history = []
 
-            # ── 2. Hybrid retrieval ───────────────────────────────────────────
+            # ── 2. Multi-stage retrieval with CRAG ────────────────────────────
             try:
-                context, sources = await asyncio.get_event_loop().run_in_executor(
+                context, sources, grade = await asyncio.get_event_loop().run_in_executor(
                     None, retrieve_context, user_text
                 )
             except Exception as e:
                 print(f"[retrieval] error: {e}")
-                context, sources = "", []
+                context, sources, grade = "", [], "ambiguous"
 
             # ── 2b. Log retrieval for analytics dashboard ────────────────────
             try:
@@ -191,10 +199,22 @@ async def professor_ws(websocket: WebSocket):
             except Exception as e:
                 print(f"[analytics] log_retrieval error: {e}")
 
-            # ── 3. Build RAG prompt ───────────────────────────────────────────
-            prompt = build_rag_prompt(user_text, context, reply_lang) if context else (
-                user_text + (f"\n\nReply in {reply_lang}." if reply_lang else "")
-            )
+            # Send the CRAG grade to the client so the UI can show a badge
+            # ("Answered from course material" / "Partial coverage" / "Out of scope")
+            await websocket.send_json({
+                "crag_grade": grade,
+                "is_final":   False,
+            })
+
+            # ── 3. Build prompt — varies by CRAG grade ────────────────────────
+            if grade == "incorrect":
+                # No relevant context — refusal prompt with no course material
+                prompt = build_refusal_prompt(user_text, reply_lang)
+            elif context:
+                prompt = build_rag_prompt(user_text, context, reply_lang, grade)
+            else:
+                # No context but grade isn't 'incorrect' — pass through with hedge
+                prompt = user_text + (f"\n\nReply in {reply_lang}." if reply_lang else "")
 
             # ── 4. Save user turn ─────────────────────────────────────────────
             try:
@@ -206,10 +226,6 @@ async def professor_ws(websocket: WebSocket):
                 print(f"[memory] save_turn(user) error: {e}")
 
             # ── 5. Stream LLM response with sentence-level TTS ────────────────
-            # Tokens stream in one by one. We accumulate them into a sentence
-            # buffer and synthesize audio when we hit a sentence boundary.
-            # This way audio starts playing after the first sentence rather
-            # than waiting for the full response.
             accumulated   = ""
             sentence_buf  = ""
             tts_lang      = reply_lang.replace("the same language as the student", "") or os.getenv("TTS_LANGUAGE", "fr")
@@ -218,7 +234,6 @@ async def professor_ws(websocket: WebSocket):
                 accumulated  += token
                 sentence_buf += token
 
-                # Send text token immediately so text renders without waiting for audio
                 await websocket.send_json({
                     "text_chunk": token,
                     "audio_b64":  None,
@@ -226,7 +241,6 @@ async def professor_ws(websocket: WebSocket):
                     "is_final":   False,
                 })
 
-                # When we hit a sentence boundary, synthesize and send audio
                 if _is_sentence_end(token) and len(sentence_buf.strip()) >= _MIN_CHUNK_LEN:
                     try:
                         wav_bytes, visemes = await asyncio.get_event_loop().run_in_executor(
@@ -243,7 +257,6 @@ async def professor_ws(websocket: WebSocket):
                         print(f"[tts] error during streaming: {e}")
                     sentence_buf = ""
 
-            # Synthesize any remaining text that didn't end with punctuation
             if sentence_buf.strip():
                 try:
                     wav_bytes, visemes = await asyncio.get_event_loop().run_in_executor(
@@ -271,10 +284,11 @@ async def professor_ws(websocket: WebSocket):
             # ── 7. Final message ──────────────────────────────────────────────
             await websocket.send_json({
                 "text_chunk": accumulated,
-                "audio_b64": None,
-                "visemes": [],
-                "sources": sources,
-                "is_final": True,
+                "audio_b64":  None,
+                "visemes":    [],
+                "sources":    sources,
+                "crag_grade": grade,
+                "is_final":   True,
             })
 
     except WebSocketDisconnect:
@@ -313,6 +327,25 @@ async def analytics_top_chunks(days: int = 7, limit: int = 20):
         None, get_top_chunks, days, limit
     )
     return data
+
+
+@app.post("/diagnostic/trace")
+async def diagnostic_trace(payload: dict = Body(...)):
+    """
+    Run a query through the multi-stage RAG + CRAG pipeline with full
+    instrumentation. Returns the trace as JSON for the diagnostic UI.
+ 
+    POST /diagnostic/trace
+    Body: { "query": "Explain the central limit theorem" }
+    """
+    query = (payload or {}).get("query", "").strip()
+    if not query:
+        return {"error": "query is required"}
+ 
+    trace = await asyncio.get_event_loop().run_in_executor(
+        None, trace_query, query
+    )
+    return trace
 
 
 @app.get("/health")

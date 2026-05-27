@@ -1,3 +1,5 @@
+# backend/requirements.txt
+
 fastapi[all]==0.115.5
 uvicorn[standard]==0.32.1
 sqlalchemy==2.0.35
@@ -13,8 +15,13 @@ soundfile==0.12.1
 python-dotenv==1.0.1
 ragas==0.2.9
 py4j==0.10.9.7
+
 # BM25 keyword search backend for hybrid retrieval
 rank_bm25==0.2.2
+
+# Cross-encoder reranker for multi-stage RAG
+# Loads BAAI/bge-reranker-v2-m3 (multilingual, ~1.1 GB)
+sentence-transformers==3.3.1
 
 # Local Whisper STT
 faster-whisper==1.0.3
@@ -22,4 +29,4 @@ faster-whisper==1.0.3
 # XTTS v2 TTS + phoneme visemes
 TTS==0.22.0
 phonemizer==3.2.1
-transformers==4.39.3
+transformers==4.41.2
