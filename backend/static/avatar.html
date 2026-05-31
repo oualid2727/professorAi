@@ -1,0 +1,1177 @@
+<!--
+  backend/static/avatar.html
+
+  AI Professor — 3D avatar test client with lip-sync.
+
+  Renders a CC0-licensed MPFB avatar from the TalkingHead repo, driven by
+  the viseme stream from your existing TTS pipeline. Same WebSocket as
+  chat.html — text in, text+audio+visemes out.
+
+  Tech:
+    - TalkingHead.js v1.7 (MIT) by met4citizen, loaded via jsDelivr
+    - Three.js r180 via jsDelivr
+    - MPFB avatar GLB (CC0) from the TalkingHead repo
+    - Web Audio API for WAV → AudioBuffer decoding
+    - Native WebSocket for backend connection
+
+  Viseme conversion:
+    Your backend (tts.py) sends [{id: int, timestamp: float_seconds}, ...]
+    TalkingHead wants {visemes: [str], vtimes: [int_ms], vdurations: [int_ms]}
+    The map is fixed (see tts.py comments): 0=sil 1=PP ... 14=U
+
+  How to use:
+    1. Place this file at backend/static/avatar.html
+    2. Ensure main.py has app.mount("/static", StaticFiles(directory="static"))
+       OR just open the file directly in a browser via file:// (works thanks to CORS)
+    3. Visit http://localhost:8000/static/avatar.html
+    4. Type a question; the avatar will respond and lip-sync to the audio.
+
+  Notes:
+    - TTS must be enabled on the backend for lip-sync (TTS_ENABLED=true).
+      Without TTS, the avatar stays idle and only subtitles + sources show.
+    - Viseme timing is approximate (evenly distributed by tts.py).
+      Lip-sync looks "roughly right" but not frame-perfect.
+-->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI Professor — Avatar</title>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;1,6..72,400;1,6..72,500&family=IBM+Plex+Mono:wght@400;500;600&family=Geist:wght@400;500;600&display=swap" rel="stylesheet">
+
+<!-- ── Three.js + TalkingHead import map ─────────────────────────────── -->
+<script type="importmap">
+{
+  "imports": {
+    "three":          "https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js",
+    "three/addons/":  "https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/",
+    "talkinghead":    "https://cdn.jsdelivr.net/gh/met4citizen/TalkingHead@1.7/modules/talkinghead.mjs"
+  }
+}
+</script>
+
+<style>
+  :root {
+    --bg-0:   #0d0e10;
+    --bg-1:   #14161a;
+    --bg-2:   #1c1f24;
+    --bg-3:   #262a31;
+    --line:   #2d323a;
+    --line-2: #3d434d;
+    --text:   #e8eaed;
+    --text-d: #adb4bd;
+    --text-m: #6f7682;
+
+    --accent:    #e8a85c;
+    --accent-2:  #5fa3d4;
+    --student:   #9d8df1;
+
+    --good: #6dd49a;
+    --warn: #e8a85c;
+    --bad:  #f08585;
+    --rec:  #ef5a5a;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html, body {
+    height: 100vh;
+    overflow: hidden;
+    background: var(--bg-0);
+    color: var(--text);
+    font-family: 'Geist', sans-serif;
+    font-size: 14px;
+    line-height: 1.55;
+  }
+
+  body {
+    background-image:
+      radial-gradient(ellipse at center, rgba(232, 168, 92, 0.06) 0%, transparent 60%),
+      radial-gradient(ellipse at bottom right, rgba(157, 141, 241, 0.04) 0%, transparent 50%);
+  }
+
+  /* ── Top bar ─────────────────────────────────────────────────────────── */
+  .topbar {
+    height: 52px;
+    border-bottom: 1px solid var(--line);
+    background: rgba(20, 22, 26, 0.85);
+    backdrop-filter: blur(12px);
+    padding: 0 24px;
+    display: flex;
+    align-items: center;
+    gap: 24px;
+    flex-shrink: 0;
+    z-index: 10;
+    position: relative;
+  }
+
+  .logo {
+    font-family: 'Newsreader', serif;
+    font-style: italic;
+    font-size: 19px;
+    font-weight: 500;
+    letter-spacing: -0.01em;
+  }
+  .logo span { color: var(--accent); }
+
+  .breadcrumb {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    color: var(--text-m);
+    text-transform: uppercase;
+    letter-spacing: 0.15em;
+    padding-left: 24px;
+    border-left: 1px solid var(--line);
+  }
+
+  .nav-links {
+    display: flex;
+    gap: 4px;
+  }
+  .nav-link {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    color: var(--text-m);
+    text-decoration: none;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    padding: 4px 10px;
+    border-radius: 2px;
+    transition: color 0.15s;
+  }
+  .nav-link:hover { color: var(--text); }
+  .nav-link.active { color: var(--accent); }
+
+  .status {
+    margin-left: auto;
+    display: flex;
+    gap: 14px;
+    align-items: center;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    color: var(--text-m);
+  }
+  .dot {
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: var(--text-m);
+    transition: background 0.2s, box-shadow 0.2s;
+  }
+  .dot.on { background: var(--good); box-shadow: 0 0 6px var(--good); }
+  .dot.off { background: var(--bad); box-shadow: 0 0 6px var(--bad); }
+  .dot.pending { background: var(--warn); box-shadow: 0 0 6px var(--warn); animation: pulse 1.4s infinite; }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+  }
+
+  /* ── Layout ──────────────────────────────────────────────────────────── */
+  .layout {
+    display: flex;
+    flex-direction: column;
+    height: calc(100vh - 52px);
+  }
+
+  /* ── Avatar stage ────────────────────────────────────────────────────── */
+  .stage {
+    flex: 1;
+    min-height: 0;
+    position: relative;
+    overflow: hidden;
+  }
+
+  #avatar {
+    width: 100%;
+    height: 100%;
+    position: absolute;
+    inset: 0;
+  }
+
+  .stage-overlay {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    padding: 24px;
+    z-index: 2;
+  }
+
+  .stage-loading {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    gap: 16px;
+    background: var(--bg-0);
+    z-index: 3;
+    transition: opacity 0.4s;
+  }
+  .stage-loading.hidden { opacity: 0; pointer-events: none; }
+
+  .loading-title {
+    font-family: 'Newsreader', serif;
+    font-style: italic;
+    font-size: 24px;
+    color: var(--text-d);
+  }
+  .loading-step {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    color: var(--text-m);
+    text-transform: uppercase;
+    letter-spacing: 0.15em;
+  }
+  .loading-bar {
+    width: 220px;
+    height: 2px;
+    background: var(--line);
+    overflow: hidden;
+    position: relative;
+  }
+  .loading-bar::after {
+    content: '';
+    position: absolute;
+    height: 100%;
+    width: 40%;
+    background: linear-gradient(90deg, transparent, var(--accent), transparent);
+    animation: slide 1.6s ease-in-out infinite;
+  }
+  @keyframes slide {
+    from { left: -40%; }
+    to { left: 100%; }
+  }
+
+  /* ── Subtitle / status overlays ──────────────────────────────────────── */
+  .stage-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 12px;
+    pointer-events: auto;
+  }
+
+  .crag-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    padding: 5px 10px;
+    border-radius: 2px;
+    border: 1px solid;
+    background: rgba(13, 14, 16, 0.7);
+    backdrop-filter: blur(6px);
+    opacity: 0;
+    transition: opacity 0.3s;
+  }
+  .crag-badge.show { opacity: 1; }
+  .crag-badge.correct   { color: var(--good); border-color: rgba(109, 212, 154, 0.5); }
+  .crag-badge.ambiguous { color: var(--warn); border-color: rgba(232, 168, 92, 0.5); }
+  .crag-badge.incorrect { color: var(--bad);  border-color: rgba(240, 133, 133, 0.5); }
+
+  .pipeline-tag {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    color: var(--text-m);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    padding: 5px 10px;
+    background: rgba(13, 14, 16, 0.7);
+    backdrop-filter: blur(6px);
+    border-radius: 2px;
+    border: 1px solid var(--line);
+    opacity: 0;
+    transition: opacity 0.3s;
+  }
+  .pipeline-tag.show { opacity: 1; }
+  .pipeline-tag .dot-mini {
+    display: inline-block;
+    width: 5px; height: 5px;
+    border-radius: 50%;
+    background: var(--accent);
+    margin-right: 5px;
+    vertical-align: middle;
+    animation: blink 1.2s infinite;
+  }
+  @keyframes blink {
+    0%, 50% { opacity: 1; }
+    51%, 100% { opacity: 0.3; }
+  }
+
+  .stage-bottom {
+    display: flex;
+    justify-content: center;
+    align-items: flex-end;
+    pointer-events: auto;
+  }
+
+  /* ── Subtitle ────────────────────────────────────────────────────────── */
+  .subtitle {
+    max-width: 720px;
+    background: rgba(13, 14, 16, 0.78);
+    backdrop-filter: blur(10px);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    padding: 16px 22px;
+    font-family: 'Newsreader', serif;
+    font-size: 18px;
+    line-height: 1.55;
+    color: var(--text);
+    opacity: 0;
+    transition: opacity 0.3s;
+    text-align: center;
+  }
+  .subtitle.show { opacity: 1; }
+  .subtitle:empty { opacity: 0; }
+
+  .subtitle-cursor {
+    display: inline-block;
+    width: 4px;
+    height: 18px;
+    background: var(--accent);
+    vertical-align: text-bottom;
+    margin-left: 2px;
+    animation: cursor-blink 0.8s infinite;
+  }
+  @keyframes cursor-blink {
+    0%, 49% { opacity: 1; }
+    50%, 100% { opacity: 0.1; }
+  }
+
+  /* ── Bottom dock ─────────────────────────────────────────────────────── */
+  .dock {
+    background: var(--bg-1);
+    border-top: 1px solid var(--line);
+    padding: 14px 24px 16px;
+    flex-shrink: 0;
+  }
+
+  .dock-row {
+    display: flex;
+    gap: 10px;
+    align-items: flex-end;
+    max-width: 1000px;
+    margin: 0 auto;
+  }
+
+  .text-input {
+    flex: 1;
+    background: var(--bg-0);
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    color: var(--text);
+    font-family: 'Newsreader', serif;
+    font-size: 16px;
+    padding: 12px 16px;
+    outline: none;
+    resize: none;
+    min-height: 48px;
+    max-height: 120px;
+    transition: border-color 0.15s;
+    line-height: 1.5;
+  }
+  .text-input:focus { border-color: var(--accent); }
+  .text-input::placeholder { color: var(--text-m); font-style: italic; }
+  .text-input:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  .btn {
+    background: var(--bg-3);
+    border: 1px solid var(--line-2);
+    color: var(--text);
+    width: 48px;
+    height: 48px;
+    border-radius: 3px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.15s;
+    flex-shrink: 0;
+  }
+  .btn:hover:not(:disabled) {
+    border-color: var(--text-m);
+    background: var(--bg-2);
+  }
+  .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  .btn-mic.recording {
+    background: var(--rec);
+    border-color: var(--rec);
+    animation: rec-pulse 1.2s infinite;
+  }
+  @keyframes rec-pulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(239, 90, 90, 0.5); }
+    50% { box-shadow: 0 0 0 8px rgba(239, 90, 90, 0); }
+  }
+
+  .btn-send {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: var(--bg-0);
+  }
+  .btn-send:hover:not(:disabled) {
+    background: #f0b56e;
+    border-color: #f0b56e;
+  }
+
+  .dock-meta {
+    margin-top: 8px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    color: var(--text-m);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    max-width: 1000px;
+    margin-left: auto;
+    margin-right: auto;
+  }
+  .dock-meta a {
+    color: var(--text-m);
+    text-decoration: none;
+    transition: color 0.15s;
+  }
+  .dock-meta a:hover { color: var(--text-d); }
+  .dock-meta b { color: var(--text-d); font-weight: 500; }
+
+  /* Sources panel — slides up from bottom */
+  .sources-fab {
+    position: absolute;
+    right: 24px;
+    bottom: 24px;
+    background: rgba(20, 22, 26, 0.85);
+    backdrop-filter: blur(8px);
+    border: 1px solid var(--line);
+    color: var(--text-d);
+    padding: 8px 14px;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    border-radius: 2px;
+    cursor: pointer;
+    transition: all 0.15s;
+    opacity: 0;
+    pointer-events: none;
+    z-index: 4;
+  }
+  .sources-fab.show {
+    opacity: 1;
+    pointer-events: auto;
+  }
+  .sources-fab:hover { color: var(--text); border-color: var(--text-m); }
+
+  .sources-modal {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.6);
+    z-index: 100;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    backdrop-filter: blur(4px);
+  }
+  .sources-modal.open { display: flex; }
+  .sources-panel {
+    background: var(--bg-1);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    width: 90%;
+    max-width: 720px;
+    max-height: 80vh;
+    overflow-y: auto;
+    padding: 28px;
+  }
+  .sources-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 18px;
+    padding-bottom: 14px;
+    border-bottom: 1px solid var(--line);
+  }
+  .sources-title {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    color: var(--text-d);
+    text-transform: uppercase;
+    letter-spacing: 0.15em;
+  }
+  .sources-close {
+    background: transparent;
+    border: none;
+    color: var(--text-m);
+    cursor: pointer;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 14px;
+    padding: 4px 8px;
+  }
+  .sources-close:hover { color: var(--text); }
+  .source-item {
+    padding: 14px 0;
+    border-bottom: 1px solid var(--line);
+  }
+  .source-item:last-child { border-bottom: none; }
+  .source-meta {
+    display: flex;
+    justify-content: space-between;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    color: var(--text-m);
+    margin-bottom: 8px;
+  }
+  .source-meta b { color: var(--text-d); }
+  .source-score { color: var(--good); }
+  .source-text {
+    font-family: 'Newsreader', serif;
+    font-size: 13px;
+    line-height: 1.55;
+    color: var(--text-d);
+  }
+
+  /* Error display */
+  .error-toast {
+    position: fixed;
+    top: 70px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(240, 133, 133, 0.15);
+    border: 1px solid var(--bad);
+    color: var(--bad);
+    padding: 10px 18px;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 12px;
+    border-radius: 3px;
+    z-index: 200;
+    opacity: 0;
+    transition: opacity 0.3s;
+    max-width: 600px;
+  }
+  .error-toast.show { opacity: 1; }
+
+  /* Scrollbar */
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--line-2); border-radius: 4px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--text-m); }
+
+  @media (max-width: 700px) {
+    .breadcrumb { display: none; }
+    .stage-overlay { padding: 16px; }
+    .subtitle { font-size: 16px; padding: 12px 16px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="logo">AI <span>·</span> Professor</div>
+  <div class="breadcrumb">Avatar</div>
+  <div class="nav-links">
+    <a href="chat.html" class="nav-link">Chat</a>
+    <a href="avatar.html" class="nav-link active">Avatar</a>
+    <a href="diagnostic.html" class="nav-link">Diagnostic</a>
+  </div>
+  <div class="status">
+    <span id="statusText">initializing…</span>
+    <span class="dot pending" id="statusDot"></span>
+  </div>
+</div>
+
+<div class="layout">
+
+  <!-- ── Avatar stage ────────────────────────────────────────────────── -->
+  <div class="stage">
+
+    <div id="avatar"></div>
+
+    <div class="stage-overlay">
+      <div class="stage-top">
+        <span class="pipeline-tag" id="pipelineTag">
+          <span class="dot-mini"></span><span id="pipelineText">retrieving…</span>
+        </span>
+        <span class="crag-badge" id="cragBadge"></span>
+      </div>
+      <div class="stage-bottom">
+        <div class="subtitle" id="subtitle"></div>
+      </div>
+    </div>
+
+    <div class="stage-loading" id="stageLoading">
+      <div class="loading-title">loading 3D avatar</div>
+      <div class="loading-bar"></div>
+      <div class="loading-step" id="loadingStep">downloading model…</div>
+    </div>
+
+    <button class="sources-fab" id="sourcesFab">
+      <span id="sourcesFabLabel">sources</span>
+    </button>
+
+  </div>
+
+  <!-- ── Bottom dock ─────────────────────────────────────────────────── -->
+  <div class="dock">
+    <div class="dock-row">
+      <textarea
+        id="textInput"
+        class="text-input"
+        placeholder="Pose ta question..."
+        rows="1"
+      ></textarea>
+      <button id="micBtn" class="btn btn-mic" title="Click to record">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <rect x="9" y="2" width="6" height="13" rx="3"/>
+          <path d="M5 11v2a7 7 0 0 0 14 0v-2"/>
+          <line x1="12" y1="20" x2="12" y2="23"/>
+          <line x1="8" y1="23" x2="16" y2="23"/>
+        </svg>
+      </button>
+      <button id="sendBtn" class="btn btn-send" title="Send (Enter)">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+          <line x1="22" y1="2" x2="11" y2="13"/>
+          <polygon points="22 2 15 22 11 13 2 9 22 2"/>
+        </svg>
+      </button>
+    </div>
+    <div class="dock-meta">
+      <span>Enter to send · Shift+Enter for newline</span>
+      <span><b id="sessionShort">—</b> · <a href="#" id="newSessionBtn">new session</a></span>
+    </div>
+  </div>
+
+</div>
+
+<!-- Error toast -->
+<div class="error-toast" id="errorToast"></div>
+
+<!-- Sources modal -->
+<div class="sources-modal" id="sourcesModal">
+  <div class="sources-panel">
+    <div class="sources-header">
+      <span class="sources-title">retrieved sources</span>
+      <button class="sources-close" id="sourcesClose">✕ close</button>
+    </div>
+    <div id="sourcesContent"></div>
+  </div>
+</div>
+
+
+<script type="module">
+  import { TalkingHead } from "talkinghead";
+
+  // ─── Config ────────────────────────────────────────────────────────
+  const API_BASE = 'http://localhost:8000';
+  const WS_URL   = 'ws://localhost:8000/ws/professor';
+
+  // CC0 MPFB avatar — served locally from backend/static/avatars/mpfb.glb
+  // (Original source: https://github.com/met4citizen/TalkingHead/tree/main/avatars)
+  //
+  // To set up: download the file once and place it in your backend/static/avatars/ folder.
+  //   curl -L -o backend/static/avatars/mpfb.glb \
+  //     https://raw.githubusercontent.com/met4citizen/TalkingHead/main/avatars/mpfb.glb
+  //
+  // The URL below is relative to where this HTML is served from.
+  // If you open this file via file:// (double-click), change this to an absolute URL
+  // like 'http://localhost:8000/static/avatars/mpfb.glb' instead.
+  const AVATAR_URL = './avatars/mpfb.glb';
+
+  // Map of viseme ID (from tts.py) to Oculus viseme name (what TalkingHead wants).
+  // Must match the order in tts.py: 0=sil 1=PP 2=FF 3=TH 4=DD 5=kk 6=CH 7=SS 8=nn 9=RR 10=aa 11=E 12=I 13=O 14=U
+  const VISEME_NAMES = ['sil','PP','FF','TH','DD','kk','CH','SS','nn','RR','aa','E','I','O','U'];
+
+  // ─── State ────────────────────────────────────────────────────────
+  let head = null;
+  let audioContext = null;
+  let ws = null;
+  let sessionId = localStorage.getItem('aiprof_session_id') || null;
+  let isStreaming = false;
+  let currentResponseText = '';
+  let currentSources = null;
+  let lastCragGrade = null;
+
+  // ─── DOM refs ─────────────────────────────────────────────────────
+  const avatarNode    = document.getElementById('avatar');
+  const stageLoading  = document.getElementById('stageLoading');
+  const loadingStep   = document.getElementById('loadingStep');
+  const textInput     = document.getElementById('textInput');
+  const sendBtn       = document.getElementById('sendBtn');
+  const micBtn        = document.getElementById('micBtn');
+  const statusText    = document.getElementById('statusText');
+  const statusDot     = document.getElementById('statusDot');
+  const subtitle      = document.getElementById('subtitle');
+  const cragBadge     = document.getElementById('cragBadge');
+  const pipelineTag   = document.getElementById('pipelineTag');
+  const pipelineText  = document.getElementById('pipelineText');
+  const sourcesFab    = document.getElementById('sourcesFab');
+  const sourcesFabLbl = document.getElementById('sourcesFabLabel');
+  const sourcesModal  = document.getElementById('sourcesModal');
+  const sourcesContent= document.getElementById('sourcesContent');
+  const sourcesClose  = document.getElementById('sourcesClose');
+  const sessionShort  = document.getElementById('sessionShort');
+  const newSessionBtn = document.getElementById('newSessionBtn');
+  const errorToast    = document.getElementById('errorToast');
+
+  // ─── Helpers ──────────────────────────────────────────────────────
+  function escape(s) {
+    return String(s).replace(/[&<>"']/g, c => ({
+      '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+    }[c]));
+  }
+
+  function showError(msg, duration = 5000) {
+    errorToast.textContent = msg;
+    errorToast.classList.add('show');
+    setTimeout(() => errorToast.classList.remove('show'), duration);
+  }
+
+  function setStatus(text, state) {
+    statusText.textContent = text;
+    statusDot.className = 'dot';
+    if (state) statusDot.classList.add(state);
+  }
+
+  function refreshSessionDisplay() {
+    sessionShort.textContent = sessionId ? sessionId.slice(0, 8) + '…' : 'no session';
+  }
+
+  function setLoadingStep(text) {
+    loadingStep.textContent = text;
+  }
+
+  function hideLoading() {
+    stageLoading.classList.add('hidden');
+  }
+
+  function base64ToArrayBuffer(b64) {
+    const bin = atob(b64);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return bytes.buffer;
+  }
+
+  async function blobToBase64(blob) {
+    const buf = await blob.arrayBuffer();
+    const bytes = new Uint8Array(buf);
+    let bin = '';
+    for (let i = 0; i < bytes.byteLength; i++) bin += String.fromCharCode(bytes[i]);
+    return btoa(bin);
+  }
+
+  // ─── Viseme conversion ────────────────────────────────────────────
+  // Convert backend's [{id, timestamp}] (seconds) to TalkingHead's parallel arrays (milliseconds).
+  function convertVisemes(rawVisemes, audioDurationMs) {
+    if (!rawVisemes || !rawVisemes.length) {
+      return { visemes: [], vtimes: [], vdurations: [] };
+    }
+
+    const visemes = [];
+    const vtimes = [];
+    const vdurations = [];
+
+    for (let i = 0; i < rawVisemes.length; i++) {
+      const v = rawVisemes[i];
+      const name = VISEME_NAMES[v.id] || 'sil';
+      const startMs = Math.round(v.timestamp * 1000);
+
+      // Duration is until next viseme starts, or until end of audio for the last one
+      let endMs;
+      if (i + 1 < rawVisemes.length) {
+        endMs = Math.round(rawVisemes[i + 1].timestamp * 1000);
+      } else {
+        endMs = audioDurationMs;
+      }
+      const durationMs = Math.max(20, endMs - startMs);
+
+      visemes.push(name);
+      vtimes.push(startMs);
+      vdurations.push(durationMs);
+    }
+
+    return { visemes, vtimes, vdurations };
+  }
+
+  // ─── TalkingHead init ─────────────────────────────────────────────
+  async function initAvatar() {
+    setLoadingStep('initializing 3D engine…');
+
+    try {
+      head = new TalkingHead(avatarNode, {
+        // Lip-sync config — we provide visemes directly, but module must be loaded
+        lipsyncModules: ["en", "fr"],
+        lipsyncLang: 'en',
+        // Disable Google TTS — we pipe in audio from our own backend
+        ttsEndpoint: null,
+        // PCM sample rate of our backend (XTTS v2 outputs 24kHz)
+        pcmSampleRate: 24000,
+        // Visual config
+        cameraView: 'upper',
+        cameraDistance: 0,
+        lightAmbientIntensity: 2,
+        lightDirectIntensity: 30,
+        // Avatar behavior
+        avatarMute: false,
+        modelFPS: 30,
+      });
+
+      setLoadingStep('loading avatar mesh…');
+
+      await head.showAvatar({
+        url: AVATAR_URL,
+        body: 'F',
+        avatarMood: 'neutral',
+        lipsyncLang: 'en',
+      }, (event) => {
+        if (event && event.lengthComputable) {
+          const pct = Math.round((event.loaded / event.total) * 100);
+          setLoadingStep(`loading avatar mesh… ${pct}%`);
+        }
+      });
+
+      setLoadingStep('ready');
+      setTimeout(hideLoading, 400);
+
+      // We need an AudioContext for decoding WAVs from the backend.
+      // Reuse TalkingHead's if accessible, otherwise create our own.
+      audioContext = head.audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+
+      return true;
+    } catch (err) {
+      console.error('Avatar init failed:', err);
+      setLoadingStep('failed to load avatar — see console');
+      showError('Could not load 3D avatar: ' + err.message, 10000);
+      return false;
+    }
+  }
+
+  // ─── Speak via avatar ─────────────────────────────────────────────
+  async function speakChunk(audioB64, rawVisemes, sentenceText) {
+    if (!head || !audioContext) return;
+
+    try {
+      // Decode WAV bytes → AudioBuffer
+      const arrayBuf = base64ToArrayBuffer(audioB64);
+      const audioBuffer = await audioContext.decodeAudioData(arrayBuf.slice(0));
+
+      const durationMs = Math.round(audioBuffer.duration * 1000);
+      const { visemes, vtimes, vdurations } = convertVisemes(rawVisemes, durationMs);
+
+      // Build the audio object for speakAudio.
+      // We provide visemes directly so TalkingHead skips its internal lipsync computation.
+      // `words` is required for the API but the avatar will use our visemes for lip-sync.
+      const text = (sentenceText || '').trim() || ' ';
+      const audioObj = {
+        audio: audioBuffer,
+        words: [text],
+        wtimes: [0],
+        wdurations: [durationMs],
+        visemes,
+        vtimes,
+        vdurations,
+      };
+
+      await head.speakAudio(audioObj);
+    } catch (err) {
+      console.warn('speakChunk error:', err);
+    }
+  }
+
+  // ─── WebSocket ────────────────────────────────────────────────────
+  function connectWebSocket() {
+    setStatus('connecting…', 'pending');
+    try {
+      ws = new WebSocket(WS_URL);
+    } catch (e) {
+      setStatus('connect failed', 'off');
+      return;
+    }
+
+    ws.onopen = () => {
+      setStatus('connected', 'on');
+    };
+
+    ws.onclose = () => {
+      setStatus('disconnected', 'off');
+      isStreaming = false;
+      setInputsEnabled(true);
+      setTimeout(connectWebSocket, 2000);
+    };
+
+    ws.onerror = () => {
+      setStatus('error', 'off');
+    };
+
+    ws.onmessage = (e) => {
+      try {
+        const data = JSON.parse(e.data);
+        handleMessage(data);
+      } catch (err) {
+        console.warn('Bad message:', err);
+      }
+    };
+  }
+
+  // We buffer text tokens until a sentence boundary so we can pair them with audio.
+  // The backend already emits audio sentence-by-sentence at the same boundaries.
+  let textBuffer = '';
+  let pendingSentence = '';
+
+  const SENTENCE_END = /[.!?;:،۔؟]/;
+
+  function handleMessage(data) {
+    // Session ID assignment
+    if (data.session_id && !data.is_final) {
+      sessionId = data.session_id;
+      localStorage.setItem('aiprof_session_id', sessionId);
+      refreshSessionDisplay();
+      return;
+    }
+
+    // History cleared etc.
+    if (data.info) return;
+
+    // STT transcript
+    if (data.transcript !== undefined) {
+      // Briefly show what was heard
+      subtitle.classList.add('show');
+      subtitle.textContent = '“' + data.transcript + '”';
+      return;
+    }
+
+    // CRAG grade announcement
+    if (data.crag_grade && !data.is_final && !data.text_chunk) {
+      lastCragGrade = data.crag_grade;
+      cragBadge.className = 'crag-badge show ' + data.crag_grade;
+      cragBadge.textContent = 'CRAG · ' + data.crag_grade;
+      pipelineText.textContent = 'generating response…';
+      return;
+    }
+
+    // Text token streaming
+    if (data.text_chunk && !data.is_final && !data.audio_b64) {
+      currentResponseText += data.text_chunk;
+      pendingSentence += data.text_chunk;
+
+      // Update subtitle live
+      subtitle.classList.add('show');
+      subtitle.innerHTML = escape(currentResponseText) + '<span class="subtitle-cursor"></span>';
+      return;
+    }
+
+    // Audio chunk (with paired visemes)
+    if (data.audio_b64) {
+      // The audio corresponds to the buffered pendingSentence.
+      // Feed it to the avatar; the textBuffer is just for subtitle display.
+      const sentenceText = pendingSentence.trim();
+      pendingSentence = '';
+      speakChunk(data.audio_b64, data.visemes || [], sentenceText);
+      return;
+    }
+
+    // Final message
+    if (data.is_final) {
+      // Final text (in case some didn't stream)
+      if (data.text_chunk && data.text_chunk.length > currentResponseText.length) {
+        currentResponseText = data.text_chunk;
+      }
+      subtitle.innerHTML = escape(currentResponseText);
+
+      // Sources
+      if (data.sources && data.sources.length) {
+        currentSources = data.sources;
+        sourcesFabLbl.textContent = `${data.sources.length} source${data.sources.length > 1 ? 's' : ''}`;
+        sourcesFab.classList.add('show');
+      }
+
+      // Hide pipeline indicator
+      pipelineTag.classList.remove('show');
+
+      isStreaming = false;
+      setInputsEnabled(true);
+      textInput.focus();
+
+      // Auto-hide subtitle after a delay so the avatar isn't always covered
+      // Only do this if the answer is short
+      if (currentResponseText.length < 200) {
+        setTimeout(() => {
+          if (!isStreaming) subtitle.classList.remove('show');
+        }, 8000);
+      }
+    }
+  }
+
+  // ─── Sending ──────────────────────────────────────────────────────
+  function send(payload) {
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+      showError('Not connected to the server.');
+      return false;
+    }
+    if (sessionId) payload.session_id = sessionId;
+    ws.send(JSON.stringify(payload));
+    return true;
+  }
+
+  function resetForNewMessage() {
+    currentResponseText = '';
+    pendingSentence = '';
+    textBuffer = '';
+    currentSources = null;
+    lastCragGrade = null;
+    subtitle.classList.remove('show');
+    subtitle.textContent = '';
+    cragBadge.classList.remove('show');
+    sourcesFab.classList.remove('show');
+    pipelineTag.classList.add('show');
+    pipelineText.textContent = 'retrieving…';
+  }
+
+  function sendText() {
+    const text = textInput.value.trim();
+    if (!text || isStreaming) return;
+    textInput.value = '';
+    autoResizeInput();
+    resetForNewMessage();
+    setInputsEnabled(false);
+    isStreaming = true;
+    send({ text });
+  }
+
+  // ─── Recording ────────────────────────────────────────────────────
+  let recorder = null;
+  let recordChunks = [];
+  let isRecording = false;
+
+  async function startRecording() {
+    if (isRecording) return;
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+        ? 'audio/webm;codecs=opus'
+        : 'audio/webm';
+      recorder = new MediaRecorder(stream, { mimeType });
+      recordChunks = [];
+      recorder.ondataavailable = (e) => {
+        if (e.data.size > 0) recordChunks.push(e.data);
+      };
+      recorder.onstop = async () => {
+        stream.getTracks().forEach(t => t.stop());
+        if (recordChunks.length === 0) return;
+        const blob = new Blob(recordChunks, { type: mimeType });
+        if (blob.size < 1000) {
+          showError('Recording too short.');
+          return;
+        }
+        const b64 = await blobToBase64(blob);
+        resetForNewMessage();
+        pipelineText.textContent = 'transcribing audio…';
+        setInputsEnabled(false);
+        isStreaming = true;
+        send({ audio_b64: b64, mime_type: mimeType });
+      };
+      recorder.start();
+      isRecording = true;
+      micBtn.classList.add('recording');
+      // Ensure the audio context is unlocked (user gesture)
+      if (audioContext && audioContext.state === 'suspended') audioContext.resume();
+    } catch (err) {
+      showError('Microphone access denied or unavailable.');
+    }
+  }
+
+  function stopRecording() {
+    if (!isRecording || !recorder) return;
+    recorder.stop();
+    isRecording = false;
+    micBtn.classList.remove('recording');
+  }
+
+  // ─── UI bindings ──────────────────────────────────────────────────
+  function setInputsEnabled(enabled) {
+    textInput.disabled = !enabled;
+    sendBtn.disabled = !enabled;
+    micBtn.disabled = !enabled;
+  }
+
+  function autoResizeInput() {
+    textInput.style.height = 'auto';
+    textInput.style.height = Math.min(textInput.scrollHeight, 120) + 'px';
+  }
+
+  sendBtn.addEventListener('click', sendText);
+
+  textInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      sendText();
+    }
+  });
+  textInput.addEventListener('input', autoResizeInput);
+
+  micBtn.addEventListener('click', () => {
+    if (isRecording) stopRecording();
+    else startRecording();
+  });
+
+  newSessionBtn.addEventListener('click', (e) => {
+    e.preventDefault();
+    if (isStreaming) return;
+    sessionId = null;
+    localStorage.removeItem('aiprof_session_id');
+    refreshSessionDisplay();
+    resetForNewMessage();
+    pipelineTag.classList.remove('show');
+  });
+
+  sourcesFab.addEventListener('click', () => {
+    if (!currentSources) return;
+    sourcesContent.innerHTML = currentSources.map((s, i) => {
+      const filename = s.filename || s.source || '—';
+      const subject  = s.subject || 'Unknown';
+      const chapter  = s.chapter || '';
+      const score    = s.score !== undefined ? s.score.toFixed(3) : null;
+      const text     = s.chunk_text || '';
+      return `
+        <div class="source-item">
+          <div class="source-meta">
+            <span><b>#${i + 1}</b> · ${escape(subject)}${chapter ? ' · ' + escape(chapter) : ''} · ${escape(filename)}</span>
+            ${score !== null ? `<span class="source-score">${score}</span>` : ''}
+          </div>
+          ${text ? `<div class="source-text">${escape(text.slice(0, 320))}${text.length > 320 ? '…' : ''}</div>` : ''}
+        </div>
+      `;
+    }).join('');
+    sourcesModal.classList.add('open');
+  });
+
+  sourcesClose.addEventListener('click', () => sourcesModal.classList.remove('open'));
+  sourcesModal.addEventListener('click', (e) => {
+    if (e.target === sourcesModal) sourcesModal.classList.remove('open');
+  });
+
+  // ─── Boot ─────────────────────────────────────────────────────────
+  refreshSessionDisplay();
+
+  (async function boot() {
+    const ok = await initAvatar();
+    if (ok) {
+      connectWebSocket();
+      textInput.focus();
+    }
+  })();
+
+</script>
+
+</body>
+</html>

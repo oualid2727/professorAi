@@ -1,0 +1,1269 @@
+<!--
+  backend/static/chat.html
+  
+  AI Professor test client — text + audio I/O in one page.
+  
+  Features:
+    - Text input with send-on-Enter
+    - Audio recording via MediaRecorder (WebM/Opus)
+    - Streaming token-by-token text responses
+    - Sentence-by-sentence audio playback (queued)
+    - CRAG grade badge per response
+    - Collapsible sources panel per response
+    - Persistent session_id (localStorage) — option B
+    - Clear history command
+    - Language selector for TTS output
+    - Live transcript when audio is sent
+    - Connection status indicator
+  
+  How to use:
+    Option A — open chat.html directly in browser (double-click)
+    Option B — serve via FastAPI: place in backend/static/
+              add `app.mount("/static", StaticFiles(directory="static"))`
+              to main.py, then visit http://localhost:8000/static/chat.html
+  
+  Adjust API_BASE / WS_URL below if your API is not on localhost:8000.
+-->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI Professor — Test Client</title>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;1,6..72,400;1,6..72,500&family=IBM+Plex+Mono:wght@400;500;600&family=Geist:wght@400;500;600&display=swap" rel="stylesheet">
+
+<style>
+  :root {
+    --bg-0:   #0d0e10;
+    --bg-1:   #14161a;
+    --bg-2:   #1c1f24;
+    --bg-3:   #262a31;
+    --line:   #2d323a;
+    --line-2: #3d434d;
+    --text:   #e8eaed;
+    --text-d: #adb4bd;
+    --text-m: #6f7682;
+
+    /* Warmer chat-oriented accents */
+    --accent:    #e8a85c;   /* warm amber — primary */
+    --accent-2:  #5fa3d4;   /* soft blue — secondary */
+    --student:   #9d8df1;   /* lavender — student turns */
+    --professor: #e8a85c;   /* amber — professor turns */
+    
+    --good: #6dd49a;
+    --warn: #e8a85c;
+    --bad:  #f08585;
+    --rec:  #ef5a5a;        /* recording red */
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  
+  html, body {
+    height: 100vh;
+    overflow: hidden;
+    background: var(--bg-0);
+    color: var(--text);
+    font-family: 'Geist', sans-serif;
+    font-size: 14px;
+    line-height: 1.55;
+  }
+  
+  body {
+    background-image:
+      radial-gradient(ellipse at top, rgba(232, 168, 92, 0.04) 0%, transparent 60%),
+      radial-gradient(ellipse at bottom right, rgba(157, 141, 241, 0.03) 0%, transparent 50%);
+  }
+
+  .mono { font-family: 'IBM Plex Mono', monospace; }
+
+  /* ── Top bar ─────────────────────────────────────────────────────────── */
+  .topbar {
+    height: 56px;
+    border-bottom: 1px solid var(--line);
+    background: rgba(20, 22, 26, 0.85);
+    backdrop-filter: blur(12px);
+    padding: 0 24px;
+    display: flex;
+    align-items: center;
+    gap: 24px;
+    flex-shrink: 0;
+    z-index: 10;
+  }
+  
+  .logo {
+    font-family: 'Newsreader', serif;
+    font-style: italic;
+    font-size: 19px;
+    font-weight: 500;
+    letter-spacing: -0.01em;
+  }
+  .logo span { color: var(--accent); }
+  
+  .breadcrumb {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    color: var(--text-m);
+    text-transform: uppercase;
+    letter-spacing: 0.15em;
+    padding-left: 24px;
+    border-left: 1px solid var(--line);
+  }
+  
+  .status {
+    margin-left: auto;
+    display: flex;
+    gap: 14px;
+    align-items: center;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    color: var(--text-m);
+  }
+  .dot {
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: var(--good);
+    box-shadow: 0 0 6px var(--good);
+    transition: background 0.2s, box-shadow 0.2s;
+  }
+  .dot.off { background: var(--bad); box-shadow: 0 0 6px var(--bad); }
+  .dot.pending { background: var(--warn); box-shadow: 0 0 6px var(--warn); animation: pulse 1.4s infinite; }
+  
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+  }
+
+  /* ── Main layout ─────────────────────────────────────────────────────── */
+  .layout {
+    display: grid;
+    grid-template-columns: 1fr 340px;
+    height: calc(100vh - 56px);
+    overflow: hidden;
+  }
+
+  /* ── Chat column ─────────────────────────────────────────────────────── */
+  .chat-col {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    background: var(--bg-0);
+  }
+
+  .thread {
+    flex: 1;
+    overflow-y: auto;
+    padding: 32px 40px 24px;
+    scroll-behavior: smooth;
+  }
+
+  .thread-empty {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    color: var(--text-m);
+    gap: 8px;
+  }
+  .empty-title {
+    font-family: 'Newsreader', serif;
+    font-style: italic;
+    font-size: 26px;
+    color: var(--text-d);
+    margin-bottom: 4px;
+  }
+  .empty-sub {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.15em;
+    color: var(--text-m);
+  }
+
+  /* ── Message bubbles ─────────────────────────────────────────────────── */
+  .msg {
+    margin-bottom: 28px;
+    opacity: 0;
+    animation: slideIn 0.3s ease forwards;
+    max-width: 760px;
+  }
+  
+  @keyframes slideIn {
+    from { opacity: 0; transform: translateY(8px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  
+  .msg-meta {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 8px;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    color: var(--text-m);
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+  }
+  
+  .msg-author {
+    font-weight: 600;
+  }
+  .msg.student .msg-author { color: var(--student); }
+  .msg.professor .msg-author { color: var(--professor); }
+  
+  .msg-time { color: var(--text-m); }
+  
+  .msg-body {
+    background: var(--bg-1);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    padding: 16px 20px;
+    font-family: 'Newsreader', serif;
+    font-size: 16px;
+    line-height: 1.65;
+    color: var(--text);
+    position: relative;
+  }
+  
+  .msg.student .msg-body {
+    border-left: 2px solid var(--student);
+  }
+  .msg.professor .msg-body {
+    border-left: 2px solid var(--professor);
+  }
+  
+  /* Transcript (when audio was sent) */
+  .transcript-tag {
+    display: inline-block;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 9px;
+    color: var(--accent-2);
+    background: rgba(95, 163, 212, 0.1);
+    border: 1px solid rgba(95, 163, 212, 0.25);
+    padding: 2px 7px;
+    border-radius: 2px;
+    margin-bottom: 8px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+  }
+
+  /* CRAG badge */
+  .crag-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    padding: 3px 9px;
+    border-radius: 2px;
+    border: 1px solid;
+  }
+  .crag-badge.correct   { color: var(--good); border-color: rgba(109, 212, 154, 0.4); background: rgba(109, 212, 154, 0.06); }
+  .crag-badge.ambiguous { color: var(--warn); border-color: rgba(232, 168, 92, 0.4); background: rgba(232, 168, 92, 0.06); }
+  .crag-badge.incorrect { color: var(--bad);  border-color: rgba(240, 133, 133, 0.4); background: rgba(240, 133, 133, 0.06); }
+  
+  /* Loading / streaming indicator */
+  .streaming-cursor {
+    display: inline-block;
+    width: 6px;
+    height: 16px;
+    background: var(--professor);
+    vertical-align: text-bottom;
+    margin-left: 2px;
+    animation: blink 0.8s infinite;
+  }
+  @keyframes blink {
+    0%, 49% { opacity: 1; }
+    50%, 100% { opacity: 0.15; }
+  }
+  
+  /* Audio indicator on professor messages */
+  .audio-indicator {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    color: var(--accent);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+  }
+  .audio-bars {
+    display: inline-flex;
+    gap: 2px;
+    align-items: flex-end;
+    height: 10px;
+  }
+  .audio-bars span {
+    width: 2px;
+    background: var(--accent);
+    border-radius: 1px;
+    animation: bar 0.9s infinite ease-in-out;
+  }
+  .audio-bars span:nth-child(1) { height: 60%; animation-delay: -0.4s; }
+  .audio-bars span:nth-child(2) { height: 100%; animation-delay: -0.2s; }
+  .audio-bars span:nth-child(3) { height: 50%; animation-delay: 0s; }
+  @keyframes bar {
+    0%, 100% { transform: scaleY(0.4); }
+    50% { transform: scaleY(1); }
+  }
+  
+  /* Sources panel */
+  .sources-toggle {
+    margin-top: 12px;
+    background: transparent;
+    border: 1px solid var(--line);
+    color: var(--text-d);
+    padding: 5px 12px;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    border-radius: 2px;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .sources-toggle:hover { color: var(--text); border-color: var(--text-m); }
+  
+  .sources-panel {
+    margin-top: 12px;
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    background: var(--bg-0);
+    overflow: hidden;
+    display: none;
+  }
+  .sources-panel.open { display: block; }
+  
+  .source-item {
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--line);
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+  }
+  .source-item:last-child { border-bottom: none; }
+  .source-meta {
+    color: var(--text-m);
+    margin-bottom: 6px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .source-meta b { color: var(--text-d); }
+  .source-score {
+    color: var(--good);
+    font-weight: 600;
+  }
+  .source-text {
+    color: var(--text-d);
+    font-family: 'Newsreader', serif;
+    font-size: 13px;
+    line-height: 1.5;
+    max-height: 80px;
+    overflow: hidden;
+    position: relative;
+  }
+  .source-text::after {
+    content: '';
+    position: absolute;
+    bottom: 0; left: 0; right: 0;
+    height: 20px;
+    background: linear-gradient(transparent, var(--bg-0));
+    pointer-events: none;
+  }
+
+  /* ── Input bar ───────────────────────────────────────────────────────── */
+  .input-bar {
+    border-top: 1px solid var(--line);
+    background: var(--bg-1);
+    padding: 16px 40px 20px;
+    flex-shrink: 0;
+  }
+  
+  .input-row {
+    display: flex;
+    gap: 10px;
+    align-items: flex-end;
+  }
+  
+  .text-input {
+    flex: 1;
+    background: var(--bg-0);
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    color: var(--text);
+    font-family: 'Newsreader', serif;
+    font-size: 16px;
+    padding: 12px 16px;
+    outline: none;
+    resize: none;
+    min-height: 48px;
+    max-height: 160px;
+    transition: border-color 0.15s;
+    line-height: 1.5;
+  }
+  .text-input:focus { border-color: var(--accent); }
+  .text-input::placeholder { color: var(--text-m); font-style: italic; }
+  .text-input:disabled { opacity: 0.5; cursor: not-allowed; }
+  
+  .btn {
+    background: var(--bg-3);
+    border: 1px solid var(--line-2);
+    color: var(--text);
+    width: 48px;
+    height: 48px;
+    border-radius: 3px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.15s;
+    flex-shrink: 0;
+  }
+  .btn:hover:not(:disabled) {
+    border-color: var(--text-m);
+    background: var(--bg-2);
+  }
+  .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  
+  .btn-mic.recording {
+    background: var(--rec);
+    border-color: var(--rec);
+    animation: rec-pulse 1.2s infinite;
+  }
+  @keyframes rec-pulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(239, 90, 90, 0.5); }
+    50% { box-shadow: 0 0 0 8px rgba(239, 90, 90, 0); }
+  }
+  
+  .btn-send {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: var(--bg-0);
+    font-weight: 600;
+  }
+  .btn-send:hover:not(:disabled) {
+    background: #f0b56e;
+    border-color: #f0b56e;
+  }
+  
+  .input-hint {
+    margin-top: 8px;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    color: var(--text-m);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    display: flex;
+    justify-content: space-between;
+  }
+
+  /* ── Right sidebar — controls ────────────────────────────────────────── */
+  .sidebar {
+    border-left: 1px solid var(--line);
+    background: var(--bg-1);
+    overflow-y: auto;
+    padding: 28px 24px;
+  }
+  
+  .panel {
+    margin-bottom: 28px;
+  }
+  
+  .panel-title {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    color: var(--text-m);
+    text-transform: uppercase;
+    letter-spacing: 0.16em;
+    margin-bottom: 14px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--line);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .panel-title::before {
+    content: '';
+    width: 4px;
+    height: 4px;
+    background: var(--accent);
+    border-radius: 50%;
+  }
+  
+  .field { margin-bottom: 12px; }
+  .field-label {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 9px;
+    color: var(--text-m);
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    margin-bottom: 5px;
+  }
+  .field-value {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 12px;
+    color: var(--text);
+    word-break: break-all;
+  }
+  .field-value.muted { color: var(--text-d); }
+  
+  .session-id {
+    background: var(--bg-0);
+    border: 1px solid var(--line);
+    padding: 8px 10px;
+    border-radius: 2px;
+    font-size: 11px;
+  }
+  
+  .control-btn {
+    width: 100%;
+    background: transparent;
+    border: 1px solid var(--line);
+    color: var(--text-d);
+    padding: 10px 14px;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    border-radius: 2px;
+    cursor: pointer;
+    transition: all 0.15s;
+    margin-bottom: 8px;
+  }
+  .control-btn:hover { color: var(--text); border-color: var(--text-m); }
+  .control-btn:last-child { margin-bottom: 0; }
+  .control-btn.danger:hover { color: var(--bad); border-color: var(--bad); }
+
+  /* Toggle switch */
+  .toggle-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 0;
+  }
+  .toggle-row .label {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    color: var(--text-d);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+  .toggle {
+    position: relative;
+    width: 36px;
+    height: 20px;
+    background: var(--bg-3);
+    border-radius: 10px;
+    cursor: pointer;
+    transition: background 0.2s;
+    border: 1px solid var(--line);
+  }
+  .toggle.on { background: var(--accent); border-color: var(--accent); }
+  .toggle::after {
+    content: '';
+    position: absolute;
+    width: 14px;
+    height: 14px;
+    background: var(--text);
+    border-radius: 50%;
+    top: 2px;
+    left: 2px;
+    transition: left 0.2s;
+  }
+  .toggle.on::after { left: 18px; background: var(--bg-0); }
+  
+  /* Stage indicator */
+  .stage-indicator {
+    background: var(--bg-0);
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    padding: 12px;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    min-height: 60px;
+  }
+  .stage-line {
+    color: var(--text-m);
+    padding: 3px 0;
+    transition: color 0.2s;
+  }
+  .stage-line.active {
+    color: var(--accent);
+  }
+  .stage-line.done {
+    color: var(--good);
+  }
+  .stage-icon {
+    display: inline-block;
+    width: 12px;
+    margin-right: 8px;
+  }
+
+  /* Scrollbar */
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--line-2); border-radius: 4px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--text-m); }
+  
+  /* Mobile/narrow fallback */
+  @media (max-width: 900px) {
+    .layout { grid-template-columns: 1fr; }
+    .sidebar { display: none; }
+    .thread, .input-bar { padding-left: 16px; padding-right: 16px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="logo">AI <span>·</span> Professor</div>
+  <div class="breadcrumb">Test Client</div>
+  <div class="status">
+    <span id="statusText">connecting…</span>
+    <span class="dot pending" id="statusDot"></span>
+  </div>
+</div>
+
+<div class="layout">
+  
+  <!-- ── CHAT COLUMN ──────────────────────────────────────────────────── -->
+  <div class="chat-col">
+    
+    <div class="thread" id="thread">
+      <div class="thread-empty" id="threadEmpty">
+        <div class="empty-title">Ask anything from your course.</div>
+        <div class="empty-sub">Type or hold the microphone to speak</div>
+      </div>
+    </div>
+    
+    <div class="input-bar">
+      <div class="input-row">
+        <textarea
+          id="textInput"
+          class="text-input"
+          placeholder="Pose ta question..."
+          rows="1"
+        ></textarea>
+        <button id="micBtn" class="btn btn-mic" title="Hold to record">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="9" y="2" width="6" height="13" rx="3"/>
+            <path d="M5 11v2a7 7 0 0 0 14 0v-2"/>
+            <line x1="12" y1="20" x2="12" y2="23"/>
+            <line x1="8" y1="23" x2="16" y2="23"/>
+          </svg>
+        </button>
+        <button id="sendBtn" class="btn btn-send" title="Send (Enter)">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+            <line x1="22" y1="2" x2="11" y2="13"/>
+            <polygon points="22 2 15 22 11 13 2 9 22 2"/>
+          </svg>
+        </button>
+      </div>
+      <div class="input-hint">
+        <span>Enter to send · Shift+Enter for newline</span>
+        <span id="recHint"></span>
+      </div>
+    </div>
+    
+  </div>
+  
+  <!-- ── SIDEBAR ──────────────────────────────────────────────────────── -->
+  <aside class="sidebar">
+    
+    <!-- Session info -->
+    <div class="panel">
+      <div class="panel-title">Session</div>
+      <div class="field">
+        <div class="field-label">Session ID</div>
+        <div class="field-value session-id" id="sessionDisplay">—</div>
+      </div>
+      <button class="control-btn" id="newSessionBtn">New session</button>
+      <button class="control-btn danger" id="clearHistBtn">Clear history</button>
+    </div>
+    
+    <!-- Pipeline indicator -->
+    <div class="panel">
+      <div class="panel-title">Pipeline</div>
+      <div class="stage-indicator" id="stageIndicator">
+        <div class="stage-line" data-stage="idle"><span class="stage-icon">○</span> idle</div>
+      </div>
+    </div>
+    
+    <!-- Settings -->
+    <div class="panel">
+      <div class="panel-title">Playback</div>
+      <div class="toggle-row">
+        <span class="label">Auto-play audio</span>
+        <div class="toggle on" id="autoplayToggle"></div>
+      </div>
+      <div class="toggle-row">
+        <span class="label">Show stage trace</span>
+        <div class="toggle on" id="stageToggle"></div>
+      </div>
+    </div>
+    
+  </aside>
+  
+</div>
+
+<script>
+  // ─── Config ──────────────────────────────────────────────────────────
+  const API_BASE = 'http://localhost:8000';
+  const WS_URL   = 'ws://localhost:8000/ws/professor';
+  
+  // ─── State ───────────────────────────────────────────────────────────
+  let ws = null;
+  let sessionId = localStorage.getItem('aiprof_session_id') || null;
+  let autoplay = true;
+  let showStage = true;
+  let isStreaming = false;
+  let currentProfMsg = null;    // DOM ref to professor's currently-building message
+  let currentSources = null;    // sources from current response
+  let audioQueue = [];
+  let audioCtx = null;
+  let isPlayingAudio = false;
+  let recorder = null;
+  let recordChunks = [];
+  let isRecording = false;
+  
+  // ─── DOM refs ────────────────────────────────────────────────────────
+  const thread        = document.getElementById('thread');
+  const threadEmpty   = document.getElementById('threadEmpty');
+  const textInput     = document.getElementById('textInput');
+  const sendBtn       = document.getElementById('sendBtn');
+  const micBtn        = document.getElementById('micBtn');
+  const recHint       = document.getElementById('recHint');
+  const statusText    = document.getElementById('statusText');
+  const statusDot     = document.getElementById('statusDot');
+  const sessionDisplay= document.getElementById('sessionDisplay');
+  const newSessionBtn = document.getElementById('newSessionBtn');
+  const clearHistBtn  = document.getElementById('clearHistBtn');
+  const stageIndicator= document.getElementById('stageIndicator');
+  const autoplayToggle= document.getElementById('autoplayToggle');
+  const stageToggle   = document.getElementById('stageToggle');
+  
+  // ─── Init ────────────────────────────────────────────────────────────
+  function init() {
+    refreshSessionDisplay();
+    connectWebSocket();
+    bindUI();
+  }
+  
+  function refreshSessionDisplay() {
+    sessionDisplay.textContent = sessionId || 'will be assigned on first message';
+    sessionDisplay.classList.toggle('muted', !sessionId);
+  }
+  
+  // ─── WebSocket ───────────────────────────────────────────────────────
+  function connectWebSocket() {
+    setStatus('connecting', 'pending');
+    try {
+      ws = new WebSocket(WS_URL);
+    } catch (e) {
+      setStatus('connect failed', 'off');
+      return;
+    }
+    
+    ws.onopen = () => {
+      setStatus('connected', 'on');
+    };
+    
+    ws.onclose = () => {
+      setStatus('disconnected', 'off');
+      isStreaming = false;
+      setInputsEnabled(true);
+      // Auto-reconnect after 2s
+      setTimeout(connectWebSocket, 2000);
+    };
+    
+    ws.onerror = () => {
+      setStatus('error', 'off');
+    };
+    
+    ws.onmessage = (e) => {
+      try {
+        const data = JSON.parse(e.data);
+        handleMessage(data);
+      } catch (err) {
+        console.warn('Bad message:', err);
+      }
+    };
+  }
+  
+  function setStatus(text, state) {
+    statusText.textContent = text;
+    statusDot.className = 'dot';
+    if (state === 'on')      statusDot.classList.add('on');
+    else if (state === 'off') statusDot.classList.add('off');
+    else if (state === 'pending') statusDot.classList.add('pending');
+  }
+  
+  // ─── Message handling ────────────────────────────────────────────────
+  function handleMessage(data) {
+    // Session ID assigned by server
+    if (data.session_id && !data.is_final) {
+      sessionId = data.session_id;
+      localStorage.setItem('aiprof_session_id', sessionId);
+      refreshSessionDisplay();
+      return;
+    }
+    
+    // Info messages (e.g., "history cleared")
+    if (data.info) {
+      setStageLine('info', data.info, 'done');
+      return;
+    }
+    
+    // Audio transcript (from STT)
+    if (data.transcript !== undefined) {
+      appendTranscript(data.transcript);
+      return;
+    }
+    
+    // CRAG grade announcement (sent before generation begins)
+    if (data.crag_grade && !data.is_final && !data.text_chunk) {
+      ensureProfessorMsg();
+      setCragBadge(data.crag_grade);
+      setStageLine('crag', `CRAG: ${data.crag_grade}`, 'done');
+      return;
+    }
+    
+    // Text token streaming
+    if (data.text_chunk && !data.is_final) {
+      ensureProfessorMsg();
+      appendToken(data.text_chunk);
+      setStageLine('generating', 'generating response…', 'active');
+      return;
+    }
+    
+    // Audio chunk
+    if (data.audio_b64) {
+      enqueueAudio(data.audio_b64);
+      return;
+    }
+    
+    // Final message
+    if (data.is_final) {
+      finalizeMessage(data);
+    }
+  }
+  
+  // ─── Sending ─────────────────────────────────────────────────────────
+  function send(payload) {
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+      alert('Not connected to the server.');
+      return false;
+    }
+    if (sessionId) payload.session_id = sessionId;
+    ws.send(JSON.stringify(payload));
+    return true;
+  }
+  
+  function sendText() {
+    const text = textInput.value.trim();
+    if (!text || isStreaming) return;
+    
+    addUserMessage(text);
+    textInput.value = '';
+    autoResizeInput();
+    
+    resetStageIndicator();
+    setStageLine('sent', 'sent · waiting for retrieval', 'active');
+    setInputsEnabled(false);
+    isStreaming = true;
+    
+    send({ text });
+  }
+  
+  async function sendAudio(blob, mimeType) {
+    // Convert blob to base64
+    const arrayBuf = await blob.arrayBuffer();
+    const bytes = new Uint8Array(arrayBuf);
+    let binary = '';
+    for (let i = 0; i < bytes.byteLength; i++) {
+      binary += String.fromCharCode(bytes[i]);
+    }
+    const b64 = btoa(binary);
+    
+    // Insert a placeholder user message (we'll fill it with transcript)
+    addUserMessage('[ audio transcribing… ]', true);
+    
+    resetStageIndicator();
+    setStageLine('audio', 'transcribing audio…', 'active');
+    setInputsEnabled(false);
+    isStreaming = true;
+    
+    send({ audio_b64: b64, mime_type: mimeType });
+  }
+  
+  // ─── UI: user message ────────────────────────────────────────────────
+  function addUserMessage(text, isAudio = false) {
+    hideEmpty();
+    const div = document.createElement('div');
+    div.className = 'msg student';
+    div.innerHTML = `
+      <div class="msg-meta">
+        <span class="msg-author">Student</span>
+        <span class="msg-time">${nowStr()}</span>
+        ${isAudio ? '<span class="transcript-tag">audio</span>' : ''}
+      </div>
+      <div class="msg-body">${escape(text)}</div>
+    `;
+    thread.appendChild(div);
+    scrollToBottom();
+  }
+  
+  function appendTranscript(transcript) {
+    // Find last student message and replace placeholder text
+    const studentMsgs = thread.querySelectorAll('.msg.student');
+    const last = studentMsgs[studentMsgs.length - 1];
+    if (!last) return;
+    const body = last.querySelector('.msg-body');
+    if (body) body.textContent = transcript;
+    setStageLine('audio', `heard: "${transcript.slice(0, 40)}${transcript.length > 40 ? '…' : ''}"`, 'done');
+  }
+  
+  // ─── UI: professor message ───────────────────────────────────────────
+  function ensureProfessorMsg() {
+    if (currentProfMsg) return;
+    hideEmpty();
+    const div = document.createElement('div');
+    div.className = 'msg professor';
+    div.innerHTML = `
+      <div class="msg-meta">
+        <span class="msg-author">Professor</span>
+        <span class="msg-time">${nowStr()}</span>
+        <span class="crag-badge-slot"></span>
+        <span class="audio-slot"></span>
+      </div>
+      <div class="msg-body"><span class="msg-text"></span><span class="streaming-cursor"></span></div>
+    `;
+    thread.appendChild(div);
+    currentProfMsg = div;
+    currentSources = null;
+    scrollToBottom();
+  }
+  
+  function setCragBadge(grade) {
+    if (!currentProfMsg) return;
+    const slot = currentProfMsg.querySelector('.crag-badge-slot');
+    if (!slot) return;
+    slot.innerHTML = `<span class="crag-badge ${grade}">${grade}</span>`;
+  }
+  
+  function appendToken(token) {
+    if (!currentProfMsg) return;
+    const textEl = currentProfMsg.querySelector('.msg-text');
+    if (textEl) textEl.textContent += token;
+    scrollToBottom();
+  }
+  
+  function finalizeMessage(data) {
+    if (!currentProfMsg) return;
+    
+    // Remove streaming cursor
+    const cursor = currentProfMsg.querySelector('.streaming-cursor');
+    if (cursor) cursor.remove();
+    
+    // Make sure final text is fully there (sometimes the server resends accumulated)
+    if (data.text_chunk) {
+      const textEl = currentProfMsg.querySelector('.msg-text');
+      if (textEl && data.text_chunk.length > textEl.textContent.length) {
+        textEl.textContent = data.text_chunk;
+      }
+    }
+    
+    // Sources
+    if (data.sources && data.sources.length) {
+      currentSources = data.sources;
+      addSourcesUI(currentProfMsg, data.sources);
+    }
+    
+    // Update CRAG if it arrived in final
+    if (data.crag_grade) setCragBadge(data.crag_grade);
+    
+    setStageLine('done', 'response complete', 'done');
+    
+    currentProfMsg = null;
+    isStreaming = false;
+    setInputsEnabled(true);
+    textInput.focus();
+  }
+  
+  function addSourcesUI(msgEl, sources) {
+    const body = msgEl.querySelector('.msg-body');
+    if (!body) return;
+    
+    const btn = document.createElement('button');
+    btn.className = 'sources-toggle';
+    btn.textContent = `${sources.length} source${sources.length > 1 ? 's' : ''}  +`;
+    
+    const panel = document.createElement('div');
+    panel.className = 'sources-panel';
+    panel.innerHTML = sources.map((s, i) => {
+      const filename = s.filename || s.source || '—';
+      const subject  = s.subject || '';
+      const chapter  = s.chapter || '';
+      const score    = s.score !== undefined ? s.score.toFixed(3) : null;
+      const text     = s.chunk_text || '';
+      return `
+        <div class="source-item">
+          <div class="source-meta">
+            <span><b>#${i + 1}</b> · ${escape(subject || 'Unknown')} ${chapter ? '· ' + escape(chapter) : ''} · ${escape(filename)}</span>
+            ${score !== null ? `<span class="source-score">${score}</span>` : ''}
+          </div>
+          ${text ? `<div class="source-text">${escape(text.slice(0, 280))}${text.length > 280 ? '…' : ''}</div>` : ''}
+        </div>
+      `;
+    }).join('');
+    
+    btn.addEventListener('click', () => {
+      const open = panel.classList.toggle('open');
+      btn.textContent = `${sources.length} source${sources.length > 1 ? 's' : ''}  ${open ? '−' : '+'}`;
+    });
+    
+    body.appendChild(btn);
+    body.appendChild(panel);
+  }
+  
+  // ─── Audio playback queue ────────────────────────────────────────────
+  function ensureAudioCtx() {
+    if (!audioCtx) {
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    }
+    // Some browsers suspend on creation — resume on user interaction
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    return audioCtx;
+  }
+  
+  function enqueueAudio(b64) {
+    if (!autoplay) return;
+    audioQueue.push(b64);
+    showAudioIndicator(true);
+    if (!isPlayingAudio) playNextInQueue();
+  }
+  
+  async function playNextInQueue() {
+    if (audioQueue.length === 0) {
+      isPlayingAudio = false;
+      showAudioIndicator(false);
+      return;
+    }
+    isPlayingAudio = true;
+    const b64 = audioQueue.shift();
+    try {
+      const ctx = ensureAudioCtx();
+      const bytes = base64ToArrayBuffer(b64);
+      const audioBuf = await ctx.decodeAudioData(bytes);
+      const src = ctx.createBufferSource();
+      src.buffer = audioBuf;
+      src.connect(ctx.destination);
+      src.onended = playNextInQueue;
+      src.start(0);
+    } catch (err) {
+      console.warn('Audio decode error:', err);
+      playNextInQueue();
+    }
+  }
+  
+  function showAudioIndicator(on) {
+    if (!currentProfMsg && !on) {
+      // Find last professor message
+      const profMsgs = thread.querySelectorAll('.msg.professor');
+      const last = profMsgs[profMsgs.length - 1];
+      if (last) {
+        const slot = last.querySelector('.audio-slot');
+        if (slot) slot.innerHTML = '';
+      }
+      return;
+    }
+    const target = currentProfMsg || thread.querySelector('.msg.professor:last-child');
+    if (!target) return;
+    const slot = target.querySelector('.audio-slot');
+    if (!slot) return;
+    slot.innerHTML = on
+      ? '<span class="audio-indicator"><span class="audio-bars"><span></span><span></span><span></span></span>audio</span>'
+      : '';
+  }
+  
+  function base64ToArrayBuffer(b64) {
+    const bin = atob(b64);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return bytes.buffer;
+  }
+  
+  // ─── Recording ───────────────────────────────────────────────────────
+  async function startRecording() {
+    if (isRecording) return;
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+        ? 'audio/webm;codecs=opus'
+        : 'audio/webm';
+      recorder = new MediaRecorder(stream, { mimeType });
+      recordChunks = [];
+      recorder.ondataavailable = (e) => {
+        if (e.data.size > 0) recordChunks.push(e.data);
+      };
+      recorder.onstop = async () => {
+        stream.getTracks().forEach(t => t.stop());
+        if (recordChunks.length === 0) return;
+        const blob = new Blob(recordChunks, { type: mimeType });
+        if (blob.size < 1000) {
+          recHint.textContent = 'too short, try again';
+          setTimeout(() => recHint.textContent = '', 2000);
+          return;
+        }
+        await sendAudio(blob, mimeType);
+      };
+      recorder.start();
+      isRecording = true;
+      micBtn.classList.add('recording');
+      recHint.textContent = '● recording — release to send';
+      ensureAudioCtx();  // Need user gesture to unlock audio playback
+    } catch (err) {
+      alert('Microphone access denied or unavailable.\n\nError: ' + err.message);
+    }
+  }
+  
+  function stopRecording() {
+    if (!isRecording || !recorder) return;
+    recorder.stop();
+    isRecording = false;
+    micBtn.classList.remove('recording');
+    recHint.textContent = '';
+  }
+  
+  // ─── Stage indicator ─────────────────────────────────────────────────
+  function resetStageIndicator() {
+    if (!showStage) {
+      stageIndicator.innerHTML = '<div class="stage-line"><span class="stage-icon">○</span> idle</div>';
+      return;
+    }
+    stageIndicator.innerHTML = '';
+  }
+  
+  function setStageLine(key, text, state) {
+    if (!showStage) return;
+    let line = stageIndicator.querySelector(`[data-stage="${key}"]`);
+    if (!line) {
+      line = document.createElement('div');
+      line.className = 'stage-line';
+      line.dataset.stage = key;
+      stageIndicator.appendChild(line);
+    }
+    line.className = `stage-line ${state || ''}`;
+    const icon = state === 'done' ? '●' : state === 'active' ? '◐' : '○';
+    line.innerHTML = `<span class="stage-icon">${icon}</span> ${escape(text)}`;
+  }
+  
+  // ─── Helpers ─────────────────────────────────────────────────────────
+  function hideEmpty() {
+    if (threadEmpty) threadEmpty.style.display = 'none';
+  }
+  function showEmpty() {
+    if (threadEmpty) threadEmpty.style.display = 'flex';
+  }
+  
+  function scrollToBottom() {
+    thread.scrollTop = thread.scrollHeight;
+  }
+  
+  function escape(s) {
+    return String(s).replace(/[&<>"']/g, c => ({
+      '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+    }[c]));
+  }
+  
+  function nowStr() {
+    const d = new Date();
+    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  }
+  
+  function setInputsEnabled(enabled) {
+    textInput.disabled = !enabled;
+    sendBtn.disabled = !enabled;
+    micBtn.disabled = !enabled;
+  }
+  
+  function autoResizeInput() {
+    textInput.style.height = 'auto';
+    textInput.style.height = Math.min(textInput.scrollHeight, 160) + 'px';
+  }
+  
+  // ─── UI bindings ─────────────────────────────────────────────────────
+  function bindUI() {
+    sendBtn.addEventListener('click', sendText);
+    
+    textInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        sendText();
+      }
+    });
+    textInput.addEventListener('input', autoResizeInput);
+    
+    // Mic — click to toggle recording on/off
+    micBtn.addEventListener('click', () => {
+      if (isRecording) stopRecording();
+      else startRecording();
+    });
+    
+    // Touch (mobile) — hold to record
+    micBtn.addEventListener('touchstart', (e) => {
+      e.preventDefault();
+      if (!isRecording) startRecording();
+    });
+    micBtn.addEventListener('touchend', (e) => {
+      e.preventDefault();
+      if (isRecording) stopRecording();
+    });
+    
+    newSessionBtn.addEventListener('click', () => {
+      if (isStreaming) return;
+      sessionId = null;
+      localStorage.removeItem('aiprof_session_id');
+      refreshSessionDisplay();
+      thread.innerHTML = '';
+      thread.appendChild(threadEmpty);
+      showEmpty();
+      resetStageIndicator();
+      setStageLine('idle', 'idle', '');
+    });
+    
+    clearHistBtn.addEventListener('click', () => {
+      if (isStreaming) return;
+      send({ command: 'clear_history' });
+      thread.innerHTML = '';
+      thread.appendChild(threadEmpty);
+      showEmpty();
+    });
+    
+    // Toggles
+    autoplayToggle.addEventListener('click', () => {
+      autoplay = !autoplay;
+      autoplayToggle.classList.toggle('on', autoplay);
+      if (!autoplay) audioQueue = [];
+    });
+    
+    stageToggle.addEventListener('click', () => {
+      showStage = !showStage;
+      stageToggle.classList.toggle('on', showStage);
+      if (!showStage) resetStageIndicator();
+    });
+  }
+  
+  // Boot
+  init();
+</script>
+
+</body>
+</html>
