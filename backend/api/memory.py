@@ -97,10 +97,13 @@ def load_history(session_id: str) -> List[Dict[str, str]]:
         return []
 
 
-def save_turn(session_id: str, role: str, content: str) -> None:
+def save_turn(session_id: str, role: str, content: str) -> int:
     """
     Persist one message turn to PostgreSQL.
     role must be 'user' or 'assistant'.
+    Returns the new message's id (or -1 if the insert failed).
+    The returned id is used by the pedagogical RAG pipeline to attach
+    concept annotations to this specific turn (see concepts_db.set_message_concepts).
     """
     try:
         _ensure_table()
@@ -110,12 +113,16 @@ def save_turn(session_id: str, role: str, content: str) -> None:
                     """
                     INSERT INTO chat_history (session_id, role, content)
                     VALUES (%s, %s, %s)
+                    RETURNING id
                     """,
                     (session_id, role, content),
                 )
+                new_id = cur.fetchone()[0]
             conn.commit()
+            return int(new_id)
     except Exception as e:
         print(f"[memory] save_turn error: {e}")
+        return -1
 
 
 def clear_history(session_id: str) -> None:
