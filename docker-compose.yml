@@ -111,7 +111,7 @@ services:
       OLLAMA_HOST: ollama
       OLLAMA_MODEL: llama3
       # Whisper STT
-      WHISPER_MODEL: small
+      WHISPER_MODEL: tiny
       WHISPER_LANGUAGE: fr
       # XTTS v2 TTS
       TTS_LANGUAGE: fr

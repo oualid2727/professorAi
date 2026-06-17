@@ -41,6 +41,59 @@ app.add_middleware(
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 
+# ── Language detection ────────────────────────────────────────────────────────
+# The reply language is auto-detected from the student's question text (works
+# for both typed text and Whisper transcripts). We then force the LLM to reply
+# in that language, because Llama 3 8B does not reliably follow a soft
+# "reply in the same language" instruction when the course context is in a
+# different language than the question.
+
+try:
+    from langdetect import detect as _ld_detect, DetectorFactory
+    DetectorFactory.seed = 0   # deterministic detection
+    _LANGDETECT_AVAILABLE = True
+except Exception as e:
+    print(f"[lang] langdetect unavailable ({e}); falling back to default language")
+    _LANGDETECT_AVAILABLE = False
+
+# ISO code → (human name for the LLM prompt, TTS language code)
+_LANG_MAP = {
+    "fr": ("French",  "fr"),
+    "en": ("English", "en"),
+    "ar": ("Arabic",  "ar"),
+    "es": ("Spanish", "es"),
+    "de": ("German",  "de"),
+    "it": ("Italian", "it"),
+    "pt": ("Portuguese", "pt"),
+}
+
+DEFAULT_LANG_CODE = os.getenv("DEFAULT_REPLY_LANGUAGE", "fr")
+
+
+def detect_language(text: str) -> tuple[str, str, str]:
+    """
+    Detect the language of the student's message.
+    Returns (iso_code, human_name, tts_code).
+    Falls back to DEFAULT_LANG_CODE when detection is unavailable or unsure.
+    """
+    fallback_code = DEFAULT_LANG_CODE if DEFAULT_LANG_CODE in _LANG_MAP else "fr"
+    fallback = (fallback_code,) + _LANG_MAP.get(fallback_code, ("French", "fr"))
+
+    if not _LANGDETECT_AVAILABLE or not text or len(text.strip()) < 3:
+        return fallback
+
+    try:
+        code = _ld_detect(text)
+    except Exception:
+        return fallback
+
+    if code in _LANG_MAP:
+        name, tts = _LANG_MAP[code]
+        return (code, name, tts)
+    # Detected a language we don't explicitly support → fall back
+    return fallback
+
+
 # ── RAG prompt builder ────────────────────────────────────────────────────────
 
 def build_rag_prompt(question: str, context: str, language: str = "", grade: str = "correct") -> str:
@@ -75,15 +128,22 @@ async def stream_ollama_response(
     prompt: str,
     history: List[Dict[str, str]],
     model: str = "llama3",
+    language_name: str = "French",
 ):
-    """Stream tokens from local Ollama with conversation history."""
+    """Stream tokens from local Ollama with conversation history.
+
+    language_name is the human-readable language the reply MUST be in
+    (e.g. "French", "English", "Arabic"). It is enforced both at the top
+    and bottom of the system prompt because Llama 3 8B tends to drift to
+    English mid-answer when the course context is English.
+    """
     url = "http://ollama:11434/api/chat"
 
     messages = [
         {
             "role": "system",
             "content": (
-                "You are a specialized Professor.\n\n"
+                f"You are a specialized Professor. You MUST write your ENTIRE reply in {language_name}.\n\n"
                 "You must use:\n"
                 "1. The provided course context (if available)\n"
                 "2. The conversation history (previous messages)\n\n"
@@ -91,7 +151,10 @@ async def stream_ollama_response(
                 "(like their name or preferences), you MUST use the conversation history.\n\n"
                 "If the answer is not in the course context but is in the conversation history, answer using the history.\n\n"
                 "Only say you haven't covered the topic if it's neither in the context nor in the conversation.\n\n"
-                "Always reply in the same language as the student."
+                f"CRITICAL LANGUAGE RULE: The student is communicating in {language_name}. "
+                f"Your complete response must be written in {language_name}, from the first word to the last. "
+                f"Even if the course material is written in another language, you must translate it and answer in {language_name}. "
+                f"Do not switch languages in the middle of your answer."
             ),
         },
         *history,
@@ -151,7 +214,6 @@ async def professor_ws(websocket: WebSocket):
                 continue
 
             user_text  = message.get("text", "")
-            reply_lang = ""
 
             # ── Audio input → Whisper STT ─────────────────────────────────────
             if not user_text and message.get("audio_b64"):
@@ -167,13 +229,15 @@ async def professor_ws(websocket: WebSocket):
                             "transcript": user_text,
                             "is_final": False,
                         })
-                    configured = os.getenv("WHISPER_LANGUAGE", "")
-                    reply_lang = configured if configured else "the same language as the student"
                 except Exception as e:
                     print(f"[stt] error: {e}")
 
             if not user_text:
                 continue
+
+            # ── Detect reply language from the question (text or transcript) ──
+            lang_code, language_name, tts_lang = detect_language(user_text)
+            print(f"[lang] detected '{lang_code}' → replying in {language_name}")
 
             # ── 1. Load conversation history ──────────────────────────────────
             try:
@@ -212,12 +276,12 @@ async def professor_ws(websocket: WebSocket):
             # ── 3. Build prompt — varies by CRAG grade ────────────────────────
             if grade == "incorrect":
                 # No relevant context — refusal prompt with no course material
-                prompt = build_refusal_prompt(user_text, reply_lang)
+                prompt = build_refusal_prompt(user_text, language_name)
             elif context:
-                prompt = build_rag_prompt(user_text, context, reply_lang, grade)
+                prompt = build_rag_prompt(user_text, context, language_name, grade)
             else:
                 # No context but grade isn't 'incorrect' — pass through with hedge
-                prompt = user_text + (f"\n\nReply in {reply_lang}." if reply_lang else "")
+                prompt = user_text + f"\n\nReply in {language_name}."
 
             # ── 4. Save user turn ─────────────────────────────────────────────
             try:
@@ -231,9 +295,9 @@ async def professor_ws(websocket: WebSocket):
             # ── 5. Stream LLM response with sentence-level TTS ────────────────
             accumulated   = ""
             sentence_buf  = ""
-            tts_lang      = reply_lang.replace("the same language as the student", "") or os.getenv("TTS_LANGUAGE", "fr")
+            # tts_lang comes from detect_language() above — matches the reply language
 
-            async for token in stream_ollama_response(prompt, history):
+            async for token in stream_ollama_response(prompt, history, language_name=language_name):
                 accumulated  += token
                 sentence_buf += token
 
