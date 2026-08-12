@@ -13,3 +13,4 @@ airflow/logs/
 
 # Docker volumes (if exported locally)
 volumes/
+professor-images.tar

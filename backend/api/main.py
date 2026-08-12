@@ -414,6 +414,33 @@ async def diagnostic_trace(payload: dict = Body(...)):
     )
     return trace
 
+@app.post("/quiz/generate")
+async def quiz_generate(payload: dict = Body(...)):
+    """
+    Generate a course-grounded multiple-choice quiz.
+ 
+    POST /quiz/generate
+    Body: { "topic": "les boucles", "num_questions": 5 }
+ 
+    Returns the quiz dict from quiz.generate_quiz (questions, sources,
+    grounded flag, optional error). The reply language is auto-detected
+    from the topic text, same as the chat flow.
+    """
+    from api.quiz import generate_quiz
+ 
+    topic = (payload or {}).get("topic", "").strip()
+    num_questions = (payload or {}).get("num_questions", 5)
+    if not topic:
+        return {"error": "topic is required", "questions": [], "grounded": False}
+ 
+    # Auto-detect the language from the topic (reuses the helper added for the
+    # language fix). Falls back to French inside detect_language if unsure.
+    _lang_code, language_name, _tts = detect_language(topic)
+ 
+    result = await asyncio.get_event_loop().run_in_executor(
+        None, generate_quiz, topic, num_questions, language_name
+    )
+    return result
 
 @app.get("/health")
 async def health():

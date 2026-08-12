@@ -1,0 +1,333 @@
+<!--
+  backend/static/quiz.html
+
+  Auto quiz generator UI. Type a topic → generates a course-grounded
+  multiple-choice quiz → answer it → live grading with explanations.
+
+  Calls POST /quiz/generate. Serve via FastAPI:
+    http://localhost:8000/static/quiz.html
+-->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI Professor — Quiz</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400&family=IBM+Plex+Mono:wght@400;500;600&family=Geist:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg-0:#0d0e10; --bg-1:#14161a; --bg-2:#1c1f24; --bg-3:#262a31;
+    --line:#2d323a; --line-2:#3d434d;
+    --text:#e8eaed; --text-d:#adb4bd; --text-m:#6f7682;
+    --accent:#e8a85c; --accent-2:#5fa3d4; --student:#9d8df1;
+    --good:#6dd49a; --bad:#f08585;
+  }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  html,body { background:var(--bg-0); color:var(--text); font-family:'Geist',sans-serif; font-size:14px; line-height:1.55; min-height:100vh; }
+  body { background-image:radial-gradient(ellipse at top, rgba(157,141,241,0.05) 0%, transparent 55%); }
+
+  .topbar { height:52px; border-bottom:1px solid var(--line); background:rgba(20,22,26,0.85); backdrop-filter:blur(12px); padding:0 24px; display:flex; align-items:center; gap:24px; position:sticky; top:0; z-index:50; }
+  .logo { font-family:'Newsreader',serif; font-style:italic; font-size:19px; font-weight:500; }
+  .logo span { color:var(--accent); }
+  .breadcrumb { font-family:'IBM Plex Mono',monospace; font-size:10px; color:var(--text-m); text-transform:uppercase; letter-spacing:0.15em; padding-left:24px; border-left:1px solid var(--line); }
+  .nav-links { display:flex; gap:4px; }
+  .nav-link { font-family:'IBM Plex Mono',monospace; font-size:10px; color:var(--text-m); text-decoration:none; text-transform:uppercase; letter-spacing:0.1em; padding:4px 10px; border-radius:2px; transition:color 0.15s; }
+  .nav-link:hover { color:var(--text); }
+  .nav-link.active { color:var(--student); }
+  .status { margin-left:auto; display:flex; gap:10px; align-items:center; font-family:'IBM Plex Mono',monospace; font-size:11px; color:var(--text-m); }
+  .dot { width:7px; height:7px; border-radius:50%; background:var(--text-m); }
+  .dot.on { background:var(--good); box-shadow:0 0 6px var(--good); }
+  .dot.off { background:var(--bad); box-shadow:0 0 6px var(--bad); }
+
+  .wrap { max-width:780px; margin:0 auto; padding:36px 24px 80px; }
+  .page-title { font-family:'Newsreader',serif; font-size:30px; font-weight:500; letter-spacing:-0.01em; margin-bottom:6px; }
+  .page-sub { font-family:'IBM Plex Mono',monospace; font-size:11px; color:var(--text-m); text-transform:uppercase; letter-spacing:0.12em; margin-bottom:28px; }
+
+  /* Setup form */
+  .setup { background:var(--bg-1); border:1px solid var(--line); border-radius:8px; padding:24px; margin-bottom:28px; }
+  .setup-row { display:flex; gap:12px; align-items:flex-end; flex-wrap:wrap; }
+  .field { flex:1; min-width:200px; }
+  .field label { display:block; font-family:'IBM Plex Mono',monospace; font-size:10px; color:var(--text-m); text-transform:uppercase; letter-spacing:0.12em; margin-bottom:8px; }
+  .field input[type=text] { width:100%; background:var(--bg-0); border:1px solid var(--line); border-radius:4px; color:var(--text); font-family:'Newsreader',serif; font-size:16px; padding:11px 14px; outline:none; transition:border-color 0.15s; }
+  .field input[type=text]:focus { border-color:var(--student); }
+  .field input::placeholder { color:var(--text-m); font-style:italic; }
+  .num-sel { display:flex; gap:2px; background:var(--bg-2); border:1px solid var(--line); border-radius:4px; padding:3px; }
+  .num-btn { font-family:'IBM Plex Mono',monospace; font-size:13px; color:var(--text-m); background:transparent; border:none; padding:8px 12px; cursor:pointer; border-radius:2px; transition:all 0.15s; }
+  .num-btn:hover { color:var(--text-d); }
+  .num-btn.active { background:var(--bg-3); color:var(--student); }
+
+  .btn-generate { background:var(--student); border:1px solid var(--student); color:var(--bg-0); font-family:'Geist',sans-serif; font-weight:600; font-size:14px; padding:11px 24px; border-radius:4px; cursor:pointer; transition:all 0.15s; white-space:nowrap; }
+  .btn-generate:hover:not(:disabled) { background:#b0a4f5; border-color:#b0a4f5; }
+  .btn-generate:disabled { opacity:0.5; cursor:not-allowed; }
+
+  .hint { font-family:'IBM Plex Mono',monospace; font-size:10px; color:var(--text-m); margin-top:12px; letter-spacing:0.04em; }
+
+  /* Loading */
+  .loading { text-align:center; padding:50px 20px; color:var(--text-m); font-family:'IBM Plex Mono',monospace; font-size:12px; }
+  .spinner { display:inline-block; width:16px; height:16px; border:2px solid var(--line-2); border-top-color:var(--student); border-radius:50%; animation:spin 0.8s linear infinite; margin-right:10px; vertical-align:middle; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+
+  /* Error / refusal */
+  .notice { background:rgba(232,168,92,0.08); border:1px solid var(--accent); color:var(--accent); padding:16px 20px; border-radius:6px; font-size:14px; line-height:1.6; }
+  .notice.error { background:rgba(240,133,133,0.08); border-color:var(--bad); color:var(--bad); }
+
+  /* Quiz */
+  .quiz-head { display:flex; justify-content:space-between; align-items:center; margin-bottom:20px; }
+  .quiz-topic { font-family:'Newsreader',serif; font-size:20px; font-style:italic; }
+  .quiz-meta { font-family:'IBM Plex Mono',monospace; font-size:10px; color:var(--text-m); text-transform:uppercase; letter-spacing:0.1em; }
+
+  .question { background:var(--bg-1); border:1px solid var(--line); border-radius:8px; padding:22px; margin-bottom:16px; }
+  .q-num { font-family:'IBM Plex Mono',monospace; font-size:10px; color:var(--student); text-transform:uppercase; letter-spacing:0.12em; margin-bottom:10px; }
+  .q-text { font-family:'Newsreader',serif; font-size:18px; line-height:1.5; margin-bottom:18px; }
+  .options { display:flex; flex-direction:column; gap:8px; }
+  .option { display:flex; align-items:flex-start; gap:12px; padding:12px 14px; background:var(--bg-0); border:1px solid var(--line); border-radius:5px; cursor:pointer; transition:all 0.12s; }
+  .option:hover { border-color:var(--line-2); }
+  .option.selected { border-color:var(--student); background:rgba(157,141,241,0.08); }
+  .option-marker { width:22px; height:22px; border-radius:50%; border:1.5px solid var(--line-2); flex-shrink:0; display:flex; align-items:center; justify-content:center; font-family:'IBM Plex Mono',monospace; font-size:11px; color:var(--text-m); transition:all 0.12s; }
+  .option.selected .option-marker { border-color:var(--student); color:var(--student); }
+  .option-text { font-size:14px; padding-top:1px; }
+
+  /* Graded states */
+  .option.correct { border-color:var(--good); background:rgba(109,212,154,0.1); }
+  .option.correct .option-marker { border-color:var(--good); color:var(--good); background:rgba(109,212,154,0.15); }
+  .option.wrong { border-color:var(--bad); background:rgba(240,133,133,0.1); }
+  .option.wrong .option-marker { border-color:var(--bad); color:var(--bad); }
+  .option.graded { cursor:default; pointer-events:none; }
+
+  .explanation { margin-top:14px; padding:12px 14px; background:var(--bg-2); border-left:2px solid var(--accent-2); border-radius:0 4px 4px 0; font-size:13px; line-height:1.55; color:var(--text-d); display:none; }
+  .explanation.show { display:block; }
+  .explanation b { color:var(--accent-2); font-family:'IBM Plex Mono',monospace; font-size:10px; text-transform:uppercase; letter-spacing:0.1em; display:block; margin-bottom:4px; }
+
+  .actions { display:flex; gap:12px; justify-content:center; margin-top:24px; }
+  .btn-submit { background:var(--good); border:1px solid var(--good); color:var(--bg-0); font-family:'Geist',sans-serif; font-weight:600; font-size:14px; padding:12px 32px; border-radius:4px; cursor:pointer; transition:all 0.15s; }
+  .btn-submit:hover:not(:disabled) { background:#84e0ac; }
+  .btn-submit:disabled { opacity:0.4; cursor:not-allowed; }
+  .btn-reset { background:var(--bg-3); border:1px solid var(--line-2); color:var(--text); font-family:'Geist',sans-serif; font-size:14px; padding:12px 24px; border-radius:4px; cursor:pointer; transition:all 0.15s; }
+  .btn-reset:hover { background:var(--bg-2); }
+
+  /* Score */
+  .score-card { background:var(--bg-1); border:1px solid var(--line); border-radius:8px; padding:28px; text-align:center; margin-bottom:24px; }
+  .score-big { font-family:'Newsreader',serif; font-size:48px; font-weight:500; line-height:1; letter-spacing:-0.02em; }
+  .score-label { font-family:'IBM Plex Mono',monospace; font-size:11px; color:var(--text-m); text-transform:uppercase; letter-spacing:0.12em; margin-top:10px; }
+  .score-msg { font-family:'Newsreader',serif; font-style:italic; font-size:17px; margin-top:14px; color:var(--text-d); }
+
+  .sources-note { font-family:'IBM Plex Mono',monospace; font-size:10px; color:var(--text-m); text-align:center; margin-top:8px; letter-spacing:0.05em; }
+
+  ::-webkit-scrollbar { width:8px; }
+  ::-webkit-scrollbar-track { background:transparent; }
+  ::-webkit-scrollbar-thumb { background:var(--line-2); border-radius:4px; }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="logo">AI <span>·</span> Professor</div>
+  <div class="breadcrumb">Quiz</div>
+  <div class="nav-links">
+    <a href="chat.html" class="nav-link">Chat</a>
+    <a href="avatar.html" class="nav-link">Avatar</a>
+    <a href="diagnostic.html" class="nav-link">Diagnostic</a>
+    <a href="analytics.html" class="nav-link">Analytics</a>
+    <a href="quiz.html" class="nav-link active">Quiz</a>
+  </div>
+  <div class="status">
+    <span id="statusText">ready</span>
+    <span class="dot on" id="statusDot"></span>
+  </div>
+</div>
+
+<div class="wrap">
+  <div class="page-title">Generate a Quiz</div>
+  <div class="page-sub">Test yourself on your course material</div>
+
+  <div class="setup" id="setup">
+    <div class="setup-row">
+      <div class="field">
+        <label>Topic</label>
+        <input type="text" id="topicInput" placeholder="e.g. les boucles, recursion, variables..." autocomplete="off">
+      </div>
+      <div class="field" style="flex:0;">
+        <label>Questions</label>
+        <div class="num-sel" id="numSel">
+          <button class="num-btn" data-n="3">3</button>
+          <button class="num-btn active" data-n="5">5</button>
+          <button class="num-btn" data-n="8">8</button>
+        </div>
+      </div>
+      <button class="btn-generate" id="generateBtn">Generate Quiz</button>
+    </div>
+    <div class="hint">Questions are built from your indexed course material — not general knowledge.</div>
+  </div>
+
+  <div id="output"></div>
+</div>
+
+<script>
+  const API_BASE = (window.location.protocol === 'http:' || window.location.protocol === 'https:')
+    ? window.location.origin
+    : 'http://localhost:8000';
+
+  const $ = id => document.getElementById(id);
+  let numQuestions = 5;
+  let currentQuiz = null;
+  let answers = {};   // questionIndex -> selectedOptionIndex
+  let graded = false;
+
+  function escapeHtml(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({
+      '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+    }[c]));
+  }
+
+  // Number selector
+  $('numSel').addEventListener('click', e => {
+    const b = e.target.closest('.num-btn');
+    if (!b) return;
+    document.querySelectorAll('.num-btn').forEach(x => x.classList.remove('active'));
+    b.classList.add('active');
+    numQuestions = Number(b.dataset.n);
+  });
+
+  // Generate
+  $('generateBtn').addEventListener('click', generate);
+  $('topicInput').addEventListener('keydown', e => { if (e.key === 'Enter') generate(); });
+
+  async function generate() {
+    const topic = $('topicInput').value.trim();
+    if (!topic) { $('topicInput').focus(); return; }
+
+    answers = {}; graded = false; currentQuiz = null;
+    $('generateBtn').disabled = true;
+    $('output').innerHTML = `<div class="loading"><span class="spinner"></span>Reading the course material and writing your quiz…</div>`;
+
+    try {
+      const res = await fetch(API_BASE + '/quiz/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ topic, num_questions: numQuestions }),
+      });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      const data = await res.json();
+      renderQuiz(data);
+    } catch (e) {
+      $('output').innerHTML = `<div class="notice error">Could not generate the quiz: ${escapeHtml(e.message)}.<br>Make sure the API is running and you're viewing this via http://localhost:8000/static/quiz.html</div>`;
+    } finally {
+      $('generateBtn').disabled = false;
+    }
+  }
+
+  function renderQuiz(data) {
+    // Refusal / error path
+    if (data.error || !data.questions || data.questions.length === 0) {
+      $('output').innerHTML = `<div class="notice">${escapeHtml(data.error || 'No questions could be generated.')}</div>`;
+      return;
+    }
+
+    currentQuiz = data;
+    const qHtml = data.questions.map((q, qi) => {
+      const opts = q.options.map((opt, oi) => `
+        <div class="option" data-q="${qi}" data-o="${oi}">
+          <div class="option-marker">${String.fromCharCode(65 + oi)}</div>
+          <div class="option-text">${escapeHtml(opt)}</div>
+        </div>
+      `).join('');
+      return `
+        <div class="question" id="q-${qi}">
+          <div class="q-num">Question ${qi + 1} of ${data.questions.length}</div>
+          <div class="q-text">${escapeHtml(q.question)}</div>
+          <div class="options">${opts}</div>
+          <div class="explanation" id="exp-${qi}"><b>Why</b>${escapeHtml(q.explanation || '')}</div>
+        </div>
+      `;
+    }).join('');
+
+    const srcCount = (data.sources || []).length;
+    $('output').innerHTML = `
+      <div class="quiz-head">
+        <div class="quiz-topic">${escapeHtml(data.topic)}</div>
+        <div class="quiz-meta">${data.questions.length} questions · ${escapeHtml(data.language || '')}</div>
+      </div>
+      ${qHtml}
+      <div class="actions">
+        <button class="btn-submit" id="submitBtn" disabled>Submit Answers</button>
+        <button class="btn-reset" id="resetBtn">New Quiz</button>
+      </div>
+      ${srcCount ? `<div class="sources-note">grounded in ${srcCount} passage${srcCount>1?'s':''} from your course material</div>` : ''}
+    `;
+
+    // Option selection
+    document.querySelectorAll('.option').forEach(el => {
+      el.addEventListener('click', () => {
+        if (graded) return;
+        const qi = el.dataset.q, oi = Number(el.dataset.o);
+        document.querySelectorAll(`.option[data-q="${qi}"]`).forEach(x => x.classList.remove('selected'));
+        el.classList.add('selected');
+        answers[qi] = oi;
+        // Enable submit once all answered
+        $('submitBtn').disabled = Object.keys(answers).length < currentQuiz.questions.length;
+      });
+    });
+
+    $('submitBtn').addEventListener('click', gradeQuiz);
+    $('resetBtn').addEventListener('click', resetQuiz);
+  }
+
+  function gradeQuiz() {
+    if (graded) return;
+    graded = true;
+    let correct = 0;
+
+    currentQuiz.questions.forEach((q, qi) => {
+      const chosen = answers[qi];
+      const correctIdx = q.correct_index;
+      if (chosen === correctIdx) correct++;
+
+      document.querySelectorAll(`.option[data-q="${qi}"]`).forEach(el => {
+        const oi = Number(el.dataset.o);
+        el.classList.add('graded');
+        el.classList.remove('selected');
+        if (oi === correctIdx) el.classList.add('correct');
+        else if (oi === chosen) el.classList.add('wrong');
+      });
+      $('exp-' + qi).classList.add('show');
+    });
+
+    const total = currentQuiz.questions.length;
+    const pct = Math.round(correct / total * 100);
+    const msg = pct === 100 ? "Perfect score." :
+                pct >= 70  ? "Solid understanding." :
+                pct >= 40  ? "Worth another review." :
+                             "Time to revisit this topic.";
+
+    const scoreColor = pct >= 70 ? 'var(--good)' : pct >= 40 ? 'var(--accent)' : 'var(--bad)';
+    const card = document.createElement('div');
+    card.className = 'score-card';
+    card.innerHTML = `
+      <div class="score-big" style="color:${scoreColor}">${correct} / ${total}</div>
+      <div class="score-label">${pct}% correct</div>
+      <div class="score-msg">${msg}</div>
+    `;
+    $('output').insertBefore(card, $('output').firstChild);
+    card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+
+    $('submitBtn').disabled = true;
+    $('submitBtn').textContent = 'Submitted';
+  }
+
+  function resetQuiz() {
+    answers = {}; graded = false; currentQuiz = null;
+    $('output').innerHTML = '';
+    $('topicInput').focus();
+  }
+
+  // Health check for status dot
+  fetch(API_BASE + '/health').then(r => {
+    if (r.ok) { $('statusText').textContent = 'connected'; $('statusDot').className = 'dot on'; }
+  }).catch(() => { $('statusText').textContent = 'API offline'; $('statusDot').className = 'dot off'; });
+
+  $('topicInput').focus();
+</script>
+</body>
+</html>
