@@ -33,11 +33,36 @@ OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3")
 CRAG_MODE = os.getenv("CRAG_MODE", "score").lower()
 
 # Thresholds for the score-based evaluator.
-# These are calibrated for BAAI/bge-reranker-v2-m3 which outputs logits
-# in roughly [-10, +10]. After sigmoid they sit in [0, 1].
-# Raw logits are easier to threshold: > 0 means relevant, > 5 means very relevant.
-CRAG_CORRECT_THRESHOLD   = float(os.getenv("CRAG_CORRECT_THRESHOLD",   "2.0"))
-CRAG_INCORRECT_THRESHOLD = float(os.getenv("CRAG_INCORRECT_THRESHOLD", "-2.0"))
+#
+# BAAI/bge-reranker-v2-m3 outputs SIGMOID-NORMALIZED scores in [0, 1], not
+# raw unbounded logits — this was confirmed empirically early in the project
+# (see report, Chapitre 3, calibration du module CRAG) and again through a
+# 24-question real-corpus evaluation (report, Chapitre 5) that produced the
+# exact thresholds below.
+#
+# IMPORTANT: earlier defaults here were "2.0"/"-2.0" (logit-scale values,
+# unreachable by a [0,1]-bounded score) — every single retrieval fell through
+# to "ambiguous" regardless of actual relevance. That bug shipped as the
+# *default* even though the correct 0.7/0.3 values were separately set via
+# environment variables in the GPU-specific docker-compose files. Since those
+# env vars aren't set on every machine this runs on, the defaults below are
+# now the real, correct values directly — no environment override required
+# for the system to behave correctly out of the box.
+#
+# Calibration methodology (24-question real evaluation on the full course
+# corpus, see run_full_evaluation.py):
+#   - 8 out-of-scope questions scored 0.000-0.002 (tight, clean cluster)
+#   - 8 in-scope questions scored mostly 0.6-0.998 (one outlier at 0.070)
+#   - 8 designed-ambiguous questions scored mostly 0.012-0.233 (one outlier
+#     at 0.602)
+#   - CRAG_INCORRECT_THRESHOLD = 0.01 sits in the clean gap between the
+#     out-of-scope cluster (≤0.002) and everything else (≥0.012).
+#   - CRAG_CORRECT_THRESHOLD = 0.25 sits in the gap between the
+#     ambiguous-question cluster (≤0.233) and the in-scope cluster (≥0.295).
+#   - This raised concordance between expected and obtained verdicts from
+#     33.3% (8/24, under the old buggy defaults) to 91.7% (22/24).
+CRAG_CORRECT_THRESHOLD   = float(os.getenv("CRAG_CORRECT_THRESHOLD",   "0.25"))
+CRAG_INCORRECT_THRESHOLD = float(os.getenv("CRAG_INCORRECT_THRESHOLD", "0.01"))
 
 Grade = Literal["correct", "ambiguous", "incorrect"]
 

@@ -1,0 +1,190 @@
+[eval] (1/24) "Qu'est-ce qu'une boucle for en Python ?"
+[rewriter] 5 queries generated
+[retrieval] building BM25 index over 671 chunks...
+[retrieval] BM25 index ready.
+/usr/local/lib/python3.11/dist-packages/huggingface_hub/file_download.py:949: FutureWarning: `resume_download` is deprecated and will be removed in version 1.0.0. Downloads always resume when possible. If you want to force a new download, use `force_download=True`.
+  warnings.warn(
+[multistage] 63 unique candidates after retrieval
+[reranker] loading BAAI/bge-reranker-v2-m3 on cpu...
+[reranker] ready on cpu.
+[multistage] top reranker scores: [0.951, 0.911, 0.705]
+[crag] retrieval grade: correct (mode=score)
+[eval] (2/24) 'Comment déclare-t-on une variable en Python ?'
+[rewriter] 5 queries generated
+[multistage] 51 unique candidates after retrieval
+[multistage] top reranker scores: [0.992, 0.84, 0.7]
+[crag] retrieval grade: correct (mode=score)
+[eval] (3/24) "Qu'est-ce qu'une fonction en Python ?"
+[rewriter] 5 queries generated
+[multistage] 59 unique candidates after retrieval
+[multistage] top reranker scores: [0.947, 0.62, 0.504]
+[crag] retrieval grade: correct (mode=score)
+[eval] (4/24) "Qu'est-ce que la récursivité ?"
+[rewriter] 5 queries generated
+[multistage] 66 unique candidates after retrieval
+[multistage] top reranker scores: [0.001, 0.001, 0.001]
+[crag] retrieval grade: incorrect (mode=score)
+[eval] pas de score trouvé dans les sources — clés disponibles: (aucune source)
+[eval] (5/24) 'Quelle est la différence entre une liste et un tuple ?'
+[rewriter] failed to parse rewrites: Expecting ',' delimiter: line 1 column 210 (char 209)
+[rewriter] 2 queries generated
+[multistage] 34 unique candidates after retrieval
+[multistage] top reranker scores: [0.822, 0.72, 0.647]
+[crag] retrieval grade: correct (mode=score)
+[eval] generation error for 'Quelle est la différence entre une liste et un tuple ?': timed out
+[eval] (6/24) 'Comment fonctionne une boucle while ?'
+[rewriter] 5 queries generated
+[multistage] 63 unique candidates after retrieval
+[multistage] top reranker scores: [0.998, 0.97, 0.935]
+[crag] retrieval grade: correct (mode=score)
+[eval] (7/24) "Qu'est-ce qu'un type de donnée en Python ?"
+[rewriter] 5 queries generated
+[multistage] 63 unique candidates after retrieval
+[multistage] top reranker scores: [0.781, 0.501, 0.254]
+[crag] retrieval grade: correct (mode=score)
+[eval] (8/24) 'Comment définir une fonction avec des paramètres par défaut ?'
+[rewriter] 5 queries generated
+[multistage] 68 unique candidates after retrieval
+[multistage] top reranker scores: [0.026, 0.016, 0.012]
+[crag] retrieval grade: ambiguous (mode=score)
+[eval] (9/24) 'Comment appliquer un décorateur personnalisé à une fonction récursive ?'
+[rewriter] 5 queries generated
+[multistage] 60 unique candidates after retrieval
+[multistage] top reranker scores: [0.233, 0.185, 0.106]
+[crag] retrieval grade: ambiguous (mode=score)
+[eval] (10/24) "Quels sont les avantages d'un générateur par rapport à une liste en termes de mémoire ?"
+[rewriter] 5 queries generated
+[multistage] 56 unique candidates after retrieval
+[multistage] top reranker scores: [0.065, 0.034, 0.022]
+[crag] retrieval grade: ambiguous (mode=score)
+[eval] (11/24) 'Quelle est la différence de performance entre récursivité et itération ?'
+[rewriter] 5 queries generated
+[multistage] 60 unique candidates after retrieval
+[multistage] top reranker scores: [0.028, 0.012, 0.004]
+[crag] retrieval grade: ambiguous (mode=score)
+[eval] (12/24) "Comment gérer les exceptions à l'intérieur d'une fonction récursive ?"
+[rewriter] 5 queries generated
+[multistage] 60 unique candidates after retrieval
+[multistage] top reranker scores: [0.175, 0.154, 0.116]
+[crag] retrieval grade: ambiguous (mode=score)
+[eval] (13/24) "Quels sont les cas d'usage avancés des compréhensions de liste imbriquées ?"
+[rewriter] 2 queries generated
+[multistage] 38 unique candidates after retrieval
+[multistage] top reranker scores: [0.022, 0.016, 0.016]
+[crag] retrieval grade: ambiguous (mode=score)
+[eval] (14/24) 'Comment déboguer une boucle infinie dans un programme complexe ?'
+[rewriter] 5 queries generated
+[multistage] 60 unique candidates after retrieval
+[multistage] top reranker scores: [0.082, 0.081, 0.06]
+[crag] retrieval grade: ambiguous (mode=score)
+[eval] (15/24) "Comment utiliser *args pour créer une fonction récursive acceptant un nombre variable d'arguments ?"
+[rewriter] 2 queries generated
+[multistage] 32 unique candidates after retrieval
+[multistage] top reranker scores: [0.602, 0.486, 0.399]
+[crag] retrieval grade: correct (mode=score)
+[eval] (16/24) 'Comment convertir une fonction récursive en fonction itérative équivalente ?'
+[rewriter] failed to parse rewrites: Expecting ',' delimiter: line 1 column 340 (char 339)
+[rewriter] 2 queries generated
+[multistage] 39 unique candidates after retrieval
+[multistage] top reranker scores: [0.09, 0.017, 0.013]
+[crag] retrieval grade: ambiguous (mode=score)
+[eval] (17/24) 'Quelle est la recette du tajine marocain ?'
+[rewriter] 5 queries generated
+[multistage] 61 unique candidates after retrieval
+[multistage] top reranker scores: [0.0, 0.0, 0.0]
+[crag] retrieval grade: incorrect (mode=score)
+[eval] pas de score trouvé dans les sources — clés disponibles: (aucune source)
+[eval] (18/24) 'Qui a remporté la coupe du monde de football en 2022 ?'
+[rewriter] 5 queries generated
+[multistage] 52 unique candidates after retrieval
+[multistage] top reranker scores: [0.002, 0.0, 0.0]
+[crag] retrieval grade: incorrect (mode=score)
+[eval] pas de score trouvé dans les sources — clés disponibles: (aucune source)
+[eval] (19/24) 'Comment fonctionne un moteur à combustion interne ?'
+[rewriter] 5 queries generated
+[multistage] 70 unique candidates after retrieval
+[multistage] top reranker scores: [0.0, 0.0, 0.0]
+[crag] retrieval grade: incorrect (mode=score)
+[eval] pas de score trouvé dans les sources — clés disponibles: (aucune source)
+[eval] (20/24) "Quelle est la capitale de l'Australie ?"
+[rewriter] 5 queries generated
+[multistage] 51 unique candidates after retrieval
+[multistage] top reranker scores: [0.001, 0.0, 0.0]
+[crag] retrieval grade: incorrect (mode=score)
+[eval] pas de score trouvé dans les sources — clés disponibles: (aucune source)
+[eval] (21/24) 'Comment préparer un thé à la menthe marocain ?'
+[rewriter] 5 queries generated
+[multistage] 68 unique candidates after retrieval
+[multistage] top reranker scores: [0.0, 0.0, 0.0]
+[crag] retrieval grade: incorrect (mode=score)
+[eval] pas de score trouvé dans les sources — clés disponibles: (aucune source)
+[eval] (22/24) "Qu'est-ce que la photosynthèse chez les plantes ?"
+[rewriter] 5 queries generated
+[multistage] 51 unique candidates after retrieval
+[multistage] top reranker scores: [0.001, 0.001, 0.0]
+[crag] retrieval grade: incorrect (mode=score)
+[eval] pas de score trouvé dans les sources — clés disponibles: (aucune source)
+[eval] (23/24) 'Quelles sont les règles officielles du football ?'
+[rewriter] 5 queries generated
+[multistage] 51 unique candidates after retrieval
+[multistage] top reranker scores: [0.0, 0.0, 0.0]
+[crag] retrieval grade: incorrect (mode=score)
+[eval] pas de score trouvé dans les sources — clés disponibles: (aucune source)
+[eval] (24/24) 'Comment fonctionne le système immunitaire humain ?'
+[rewriter] 5 queries generated
+[multistage] 46 unique candidates after retrieval
+[multistage] top reranker scores: [0.002, 0.002, 0.002]
+[crag] retrieval grade: incorrect (mode=score)
+[eval] pas de score trouvé dans les sources — clés disponibles: (aucune source)
+
+[eval] Calcul RAGAS sur 14 question(s) éligibles...
+/app/api/ragas_eval.py:69: LangChainDeprecationWarning: The class `Ollama` was deprecated in LangChain 0.3.1 and will be removed in 1.0.0. An updated version of the class exists in the :class:`~langchain-ollama package and should be used instead. To use it run `pip install -U :class:`~langchain-ollama` and import as `from :class:`~langchain_ollama import OllamaLLM``.
+  llm = LangchainLLMWrapper(Ollama(base_url=OLLAMA_BASE_URL, model=OLLAMA_MODEL))
+/app/api/ragas_eval.py:71: LangChainDeprecationWarning: The class `OllamaEmbeddings` was deprecated in LangChain 0.3.1 and will be removed in 1.0.0. An updated version of the class exists in the :class:`~langchain-ollama package and should be used instead. To use it run `pip install -U :class:`~langchain-ollama` and import as `from :class:`~langchain_ollama import OllamaEmbeddings``.
+  OllamaEmbeddings(base_url=OLLAMA_BASE_URL, model=EMBED_MODEL)
+Evaluating:   0%|          | 0/28 [00:00<?, ?it/s]Exception raised in Job[0]: TimeoutError()
+Exception raised in Job[1]: TimeoutError()
+Exception raised in Job[2]: TimeoutError()
+Exception raised in Job[3]: TimeoutError()
+Exception raised in Job[4]: TimeoutError()
+Exception raised in Job[5]: TimeoutError()
+Exception raised in Job[6]: TimeoutError()
+Exception raised in Job[7]: TimeoutError()
+Exception raised in Job[8]: TimeoutError()
+Exception raised in Job[9]: TimeoutError()
+Exception raised in Job[10]: TimeoutError()
+Exception raised in Job[11]: TimeoutError()
+Exception raised in Job[12]: TimeoutError()
+Evaluating:   4%|▎         | 1/28 [03:00<1:21:18, 180.70s/it]Exception raised in Job[13]: TimeoutError()
+Exception raised in Job[14]: TimeoutError()
+Exception raised in Job[15]: TimeoutError()
+Evaluating:  39%|███▉      | 11/28 [03:00<03:21, 11.84s/it]  Evaluating:  57%|█████▋    | 16/28 [03:19<02:22, 11.84s/it]Exception raised in Job[16]: TimeoutError()
+Exception raised in Job[17]: TimeoutError()
+Exception raised in Job[18]: TimeoutError()
+Exception raised in Job[19]: TimeoutError()
+Exception raised in Job[20]: TimeoutError()
+Exception raised in Job[21]: TimeoutError()
+Exception raised in Job[22]: TimeoutError()
+Exception raised in Job[23]: TimeoutError()
+Exception raised in Job[24]: TimeoutError()
+Exception raised in Job[25]: TimeoutError()
+Evaluating:  61%|██████    | 17/28 [06:01<03:39, 19.95s/it]Exception raised in Job[26]: TimeoutError()
+Exception raised in Job[27]: TimeoutError()
+Evaluating:  96%|█████████▋| 27/28 [06:01<00:09,  9.70s/it]Evaluating: 100%|██████████| 28/28 [06:01<00:00, 12.91s/it]
+[eval] RAGAS evaluation error: 0
+
+============================================================
+RÉSUMÉ DE L'ÉVALUATION
+============================================================
+Questions testées         : 24
+Concordance CRAG          : 21/24 (87.5%)
+RAGAS non calculé : 0
+============================================================
+
+3 désaccord(s) de verdict CRAG :
+  - [in_scope] "Qu'est-ce que la récursivité ?": attendu=correct, obtenu=incorrect, score=None
+  - [in_scope] 'Comment définir une fonction avec des paramètres par défaut ?': attendu=correct, obtenu=ambiguous, score=0.026
+  - [ambiguous] "Comment utiliser *args pour créer une fonction récursive acceptant un nombre variable d'arguments ?": attendu=ambiguous, obtenu=correct, score=0.602
+
+Durée totale : 84.7 minutes
+Résultats détaillés sauvegardés dans /app/api/evaluation_results.json

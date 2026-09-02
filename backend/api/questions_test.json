@@ -1,0 +1,28 @@
+[
+  {"question": "Qu'est-ce qu'une boucle for en Python ?", "category": "in_scope", "expected_verdict": "correct"},
+  {"question": "Comment déclare-t-on une variable en Python ?", "category": "in_scope", "expected_verdict": "correct"},
+  {"question": "Qu'est-ce qu'une fonction en Python ?", "category": "in_scope", "expected_verdict": "correct"},
+  {"question": "Qu'est-ce que la récursivité ?", "category": "in_scope", "expected_verdict": "correct"},
+  {"question": "Quelle est la différence entre une liste et un tuple ?", "category": "in_scope", "expected_verdict": "correct"},
+  {"question": "Comment fonctionne une boucle while ?", "category": "in_scope", "expected_verdict": "correct"},
+  {"question": "Qu'est-ce qu'un type de donnée en Python ?", "category": "in_scope", "expected_verdict": "correct"},
+  {"question": "Comment définir une fonction avec des paramètres par défaut ?", "category": "in_scope", "expected_verdict": "correct"},
+
+  {"question": "Comment appliquer un décorateur personnalisé à une fonction récursive ?", "category": "ambiguous", "expected_verdict": "ambiguous"},
+  {"question": "Quels sont les avantages d'un générateur par rapport à une liste en termes de mémoire ?", "category": "ambiguous", "expected_verdict": "ambiguous"},
+  {"question": "Quelle est la différence de performance entre récursivité et itération ?", "category": "ambiguous", "expected_verdict": "ambiguous"},
+  {"question": "Comment gérer les exceptions à l'intérieur d'une fonction récursive ?", "category": "ambiguous", "expected_verdict": "ambiguous"},
+  {"question": "Quels sont les cas d'usage avancés des compréhensions de liste imbriquées ?", "category": "ambiguous", "expected_verdict": "ambiguous"},
+  {"question": "Comment déboguer une boucle infinie dans un programme complexe ?", "category": "ambiguous", "expected_verdict": "ambiguous"},
+  {"question": "Comment utiliser *args pour créer une fonction récursive acceptant un nombre variable d'arguments ?", "category": "ambiguous", "expected_verdict": "ambiguous"},
+  {"question": "Comment convertir une fonction récursive en fonction itérative équivalente ?", "category": "ambiguous", "expected_verdict": "ambiguous"},
+
+  {"question": "Quelle est la recette du tajine marocain ?", "category": "out_of_scope", "expected_verdict": "incorrect"},
+  {"question": "Qui a remporté la coupe du monde de football en 2022 ?", "category": "out_of_scope", "expected_verdict": "incorrect"},
+  {"question": "Comment fonctionne un moteur à combustion interne ?", "category": "out_of_scope", "expected_verdict": "incorrect"},
+  {"question": "Quelle est la capitale de l'Australie ?", "category": "out_of_scope", "expected_verdict": "incorrect"},
+  {"question": "Comment préparer un thé à la menthe marocain ?", "category": "out_of_scope", "expected_verdict": "incorrect"},
+  {"question": "Qu'est-ce que la photosynthèse chez les plantes ?", "category": "out_of_scope", "expected_verdict": "incorrect"},
+  {"question": "Quelles sont les règles officielles du football ?", "category": "out_of_scope", "expected_verdict": "incorrect"},
+  {"question": "Comment fonctionne le système immunitaire humain ?", "category": "out_of_scope", "expected_verdict": "incorrect"}
+]
