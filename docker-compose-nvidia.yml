@@ -131,7 +131,7 @@ services:
       OLLAMA_MODEL: llama3
       # Whisper STT — medium is fine on GPU (~0.5-1s per transcription)
       WHISPER_MODEL: medium
-      WHISPER_LANGUAGE: fr
+
       # XTTS v2 TTS — real-time on GPU
       TTS_LANGUAGE: fr
       TTS_ENABLED: "true"
@@ -153,11 +153,12 @@ services:
       # NOTE: these thresholds are calibrated for bge-reranker-v2-m3's
       # sigmoid-normalized output range [0, 1] — we corrected these together
       # after the first jury-prep test showed all queries returning 'ambiguous'.
-      CRAG_CORRECT_THRESHOLD:   "0.7"
-      CRAG_INCORRECT_THRESHOLD: "0.3"
+      #CRAG_CORRECT_THRESHOLD:   "0.7"
+      #CRAG_INCORRECT_THRESHOLD: "0.3"
 
     volumes:
       - ./backend:/app
+      - hf-cache:/root/.cache/huggingface
     working_dir: /app
     command: uvicorn api.main:app --host 0.0.0.0 --port 8000 --reload
     ports:
@@ -175,3 +176,4 @@ volumes:
   chroma-data:
   minio-data:
   ollama-data:
+  hf-cache:

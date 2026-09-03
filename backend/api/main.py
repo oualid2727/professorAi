@@ -216,6 +216,7 @@ async def professor_ws(websocket: WebSocket):
             user_text  = message.get("text", "")
 
             # ── Audio input → Whisper STT ─────────────────────────────────────
+            whisper_lang = None
             if not user_text and message.get("audio_b64"):
                 try:
                     audio_bytes = base64.b64decode(message["audio_b64"])
@@ -223,7 +224,7 @@ async def professor_ws(websocket: WebSocket):
                     user_text   = await asyncio.get_event_loop().run_in_executor(
                         None, transcribe, audio_bytes, mime_type
                     )
-                    print(f"[stt] transcribed: {user_text!r}")
+                    print(f"[stt] transcribed: {user_text!r} (lang={whisper_lang})")
                     if user_text:
                         await websocket.send_json({
                             "transcript": user_text,
@@ -236,8 +237,12 @@ async def professor_ws(websocket: WebSocket):
                 continue
 
             # ── Detect reply language from the question (text or transcript) ──
-            lang_code, language_name, tts_lang = detect_language(user_text)
-            print(f"[lang] detected '{lang_code}' → replying in {language_name}")
+            if whisper_lang and whisper_lang in _LANG_MAP:
+                lang_code = whisper_lang
+                language_name, tts_lang = _LANG_MAP[lang_code]
+            else:
+                lang_code, language_name, tts_lang = detect_language(user_text)
+
 
             # ── 1. Load conversation history ──────────────────────────────────
             try:

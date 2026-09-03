@@ -45,7 +45,7 @@ print(f"[stt] Whisper '{_MODEL_NAME}' ready on {_DEVICE}.")
 
 # ── Public API ────────────────────────────────────────────────────────────────
 
-def transcribe(audio_bytes: bytes, mime_type: str = "audio/webm") -> str:
+def transcribe(audio_bytes: bytes, mime_type: str = "audio/webm") -> tuple[str, str | None]:
     """
     Transcribe raw audio bytes to text using local Whisper.
 
@@ -67,29 +67,26 @@ def transcribe(audio_bytes: bytes, mime_type: str = "audio/webm") -> str:
         Transcribed text, or an empty string if transcription fails.
     """
     if not audio_bytes:
-        return ""
+        return "", None
 
     ext = _mime_to_ext(mime_type)
-
     try:
         with tempfile.NamedTemporaryFile(suffix=ext, delete=False) as tmp:
             tmp.write(audio_bytes)
             tmp_path = tmp.name
 
-        # faster-whisper returns a generator of segments
-        segments, _info = _model.transcribe(
+        segments, info = _model.transcribe(
             tmp_path,
             beam_size=5,
-            language=_LANGUAGE,  # None = auto-detect, or e.g. 'fr', 'en'
-            vad_filter=True,     # skip silent segments, reduces hallucinations
+            language=_LANGUAGE,      # now None by default → auto-detect
+            vad_filter=True,
         )
         text = " ".join(seg.text for seg in segments).strip()
-        return text
-
+        detected_lang = getattr(info, "language", None)  # e.g. "fr", "ar", "en"
+        return text, detected_lang
     except Exception as e:
         print(f"[stt] transcribe error: {e}")
-        return ""
-
+        return "", None
     finally:
         try:
             os.unlink(tmp_path)
