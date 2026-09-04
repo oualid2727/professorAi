@@ -6,15 +6,13 @@
 #   - HyDE: a pseudo-answer the LLM thinks would answer the question
 #
 # All rewrites are then passed to the retriever; results are merged.
+# LLM calls route through llm_client, respecting LLM_BACKEND (ollama|groq).
 
 import os
 import json
-import httpx
 from typing import List
 
-OLLAMA_HOST  = os.getenv("OLLAMA_HOST",  "ollama")
-OLLAMA_PORT  = int(os.getenv("OLLAMA_PORT", "11434"))
-OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3")
+from api.llm_client import generate as llm_generate
 
 NUM_REWRITES = int(os.getenv("NUM_REWRITES", "3"))
 
@@ -41,22 +39,11 @@ Question: {question}
 Answer:"""
 
 
-def _ollama_generate(prompt: str, temperature: float = 0.3) -> str:
+def _llm_generate(prompt: str, temperature: float = 0.3) -> str:
     try:
-        resp = httpx.post(
-            f"http://{OLLAMA_HOST}:{OLLAMA_PORT}/api/generate",
-            json={
-                "model": OLLAMA_MODEL,
-                "prompt": prompt,
-                "stream": False,
-                "options": {"temperature": temperature},
-            },
-            timeout=30,
-        )
-        resp.raise_for_status()
-        return resp.json().get("response", "").strip()
+        return llm_generate(prompt, temperature=temperature, timeout=30)
     except Exception as e:
-        print(f"[rewriter] ollama error: {e}")
+        print(f"[rewriter] llm error: {e}")
         return ""
 
 
@@ -65,9 +52,9 @@ def generate_rewrites(question: str) -> List[str]:
     queries = [question]
 
     # ── Multi-query ──────────────────────────────────────────────────────────
-    raw = _ollama_generate(_REWRITE_PROMPT.format(n=NUM_REWRITES, question=question))
+    raw = _llm_generate(_REWRITE_PROMPT.format(n=NUM_REWRITES, question=question))
     try:
-        # Strip markdown fences if Llama added any
+        # Strip markdown fences if the model added any
         cleaned = raw.replace("```json", "").replace("```", "").strip()
         # Find the JSON array
         start = cleaned.find("[")
@@ -80,7 +67,7 @@ def generate_rewrites(question: str) -> List[str]:
         print(f"[rewriter] failed to parse rewrites: {e}")
 
     # ── HyDE pseudo-document ─────────────────────────────────────────────────
-    hyde = _ollama_generate(_HYDE_PROMPT.format(question=question), temperature=0.5)
+    hyde = _llm_generate(_HYDE_PROMPT.format(question=question), temperature=0.5)
     if hyde:
         queries.append(hyde)
 

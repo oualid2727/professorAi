@@ -19,15 +19,12 @@
 
 import os
 from typing import List, Tuple, Literal
+from api.llm_client import generate as llm_generate
 
 import httpx
 from langchain_core.documents import Document
 
-# ── Config ────────────────────────────────────────────────────────────────────
 
-OLLAMA_HOST  = os.getenv("OLLAMA_HOST",  "ollama")
-OLLAMA_PORT  = int(os.getenv("OLLAMA_PORT", "11434"))
-OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3")
 
 # Mode: 'score' (default) or 'llm'
 CRAG_MODE = os.getenv("CRAG_MODE", "score").lower()
@@ -109,7 +106,7 @@ Answer:"""
 
 
 def _evaluate_by_llm(query: str, docs: List[Document]) -> Grade:
-    """Ask Llama 3 to grade the retrieval. Slower but more nuanced."""
+    """Ask the LLM to grade the retrieval. Slower but more nuanced."""
     if not docs:
         return "incorrect"
 
@@ -120,18 +117,11 @@ def _evaluate_by_llm(query: str, docs: List[Document]) -> Grade:
     )
 
     try:
-        resp = httpx.post(
-            f"http://{OLLAMA_HOST}:{OLLAMA_PORT}/api/generate",
-            json={
-                "model": OLLAMA_MODEL,
-                "prompt": _GRADER_PROMPT.format(question=query, passages=passages),
-                "stream": False,
-                "options": {"temperature": 0.0},
-            },
+        answer = llm_generate(
+            _GRADER_PROMPT.format(question=query, passages=passages),
+            temperature=0.0,
             timeout=20,
-        )
-        resp.raise_for_status()
-        answer = resp.json().get("response", "").strip().lower()
+        ).lower()
 
         # Be tolerant of phrasing variations
         if answer.startswith("yes"):

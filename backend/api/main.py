@@ -41,6 +41,15 @@ app.add_middleware(
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 
+# ── LLM backend toggle ────────────────────────────────────────────────────────
+# LLM_BACKEND=ollama (default) uses your local Llama 3 via Ollama.
+# LLM_BACKEND=groq  uses Groq's free hosted API (much faster, needs GROQ_API_KEY).
+
+LLM_BACKEND  = os.getenv("LLM_BACKEND", "groq").lower()   # "ollama" | "groq"
+GROQ_API_KEY = os.getenv("GROQ_API_KEY", "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")
+GROQ_MODEL   = os.getenv("GROQ_MODEL", "openai/gpt-oss-120b")
+
+
 # ── Language detection ────────────────────────────────────────────────────────
 # The reply language is auto-detected from the student's question text (works
 # for both typed text and Whisper transcripts). We then force the LLM to reply
@@ -98,7 +107,7 @@ def detect_language(text: str) -> tuple[str, str, str]:
 
 def build_rag_prompt(question: str, context: str, language: str = "", grade: str = "correct") -> str:
     """
-    Build the prompt sent to Llama 3. The CRAG grade decides whether to
+    Build the prompt sent to the LLM. The CRAG grade decides whether to
     append a refusal suffix ('incorrect'), a hedge suffix ('ambiguous'),
     or nothing ('correct').
     """
@@ -122,6 +131,31 @@ def build_refusal_prompt(question: str, language: str = "") -> str:
     )
 
 
+def _system_prompt(language_name: str) -> str:
+    """Shared system prompt for both backends."""
+    return (
+        f"You are a specialized Professor speaking aloud to a student. You MUST write your ENTIRE reply in {language_name}.\n\n"
+        "You must use:\n"
+        "1. The provided course context (if available)\n"
+        "2. The conversation history (previous messages)\n\n"
+        "If the student asks about something personal mentioned earlier "
+        "(like their name or preferences), you MUST use the conversation history.\n\n"
+        "If the answer is not in the course context but is in the conversation history, answer using the history.\n\n"
+        "Only say you haven't covered the topic if it's neither in the context nor in the conversation.\n\n"
+        "IMPORTANT — SPOKEN OUTPUT: your response will be read aloud by a text-to-speech "
+        "engine, not displayed as text. Do NOT use any markdown formatting: no asterisks for "
+        "bold/italics, no bullet points, no numbered lists, no backticks, no code blocks. "
+        "Write in plain, natural spoken sentences, the way a professor would actually talk "
+        "in a lecture. If you need to list things, say them in a flowing sentence "
+        "(e.g. 'first... then... finally...') instead of using list formatting. "
+        "For code examples, describe what the code does in words rather than showing raw syntax.\n\n"
+        f"CRITICAL LANGUAGE RULE: The student is communicating in {language_name}. "
+        f"Your complete response must be written in {language_name}, from the first word to the last. "
+        f"Even if the course material is written in another language, you must translate it and answer in {language_name}. "
+        f"Do not switch languages in the middle of your answer."
+    )
+
+
 # ── Ollama streaming ──────────────────────────────────────────────────────────
 
 async def stream_ollama_response(
@@ -130,33 +164,11 @@ async def stream_ollama_response(
     model: str = "llama3",
     language_name: str = "French",
 ):
-    """Stream tokens from local Ollama with conversation history.
-
-    language_name is the human-readable language the reply MUST be in
-    (e.g. "French", "English", "Arabic"). It is enforced both at the top
-    and bottom of the system prompt because Llama 3 8B tends to drift to
-    English mid-answer when the course context is English.
-    """
+    """Stream tokens from local Ollama with conversation history."""
     url = "http://ollama:11434/api/chat"
 
     messages = [
-        {
-            "role": "system",
-            "content": (
-                f"You are a specialized Professor. You MUST write your ENTIRE reply in {language_name}.\n\n"
-                "You must use:\n"
-                "1. The provided course context (if available)\n"
-                "2. The conversation history (previous messages)\n\n"
-                "If the student asks about something personal mentioned earlier "
-                "(like their name or preferences), you MUST use the conversation history.\n\n"
-                "If the answer is not in the course context but is in the conversation history, answer using the history.\n\n"
-                "Only say you haven't covered the topic if it's neither in the context nor in the conversation.\n\n"
-                f"CRITICAL LANGUAGE RULE: The student is communicating in {language_name}. "
-                f"Your complete response must be written in {language_name}, from the first word to the last. "
-                f"Even if the course material is written in another language, you must translate it and answer in {language_name}. "
-                f"Do not switch languages in the middle of your answer."
-            ),
-        },
+        {"role": "system", "content": _system_prompt(language_name)},
         *history,
         {"role": "user", "content": prompt},
     ]
@@ -177,6 +189,62 @@ async def stream_ollama_response(
                 content = data.get("message", {}).get("content", "")
                 if content:
                     yield content
+
+
+# ── Groq streaming ─────────────────────────────────────────────────────────────
+
+async def stream_groq_response(
+    prompt: str,
+    history: List[Dict[str, str]],
+    language_name: str = "French",
+):
+    """Stream tokens from Groq's OpenAI-compatible API. Same contract as
+    stream_ollama_response — yields content strings as they arrive."""
+    url = "https://api.groq.com/openai/v1/chat/completions"
+    headers = {
+        "Authorization": f"Bearer {GROQ_API_KEY}",
+        "Content-Type": "application/json",
+    }
+
+    messages = [
+        {"role": "system", "content": _system_prompt(language_name)},
+        *history,
+        {"role": "user", "content": prompt},
+    ]
+
+    payload = {"model": GROQ_MODEL, "stream": True, "messages": messages}
+
+    async with httpx.AsyncClient(timeout=None) as client:
+        async with client.stream("POST", url, json=payload, headers=headers) as response:
+            if response.status_code != 200:
+                body = await response.aread()
+                print(f"[groq] error {response.status_code}: {body[:300]}")
+                return
+            async for line in response.aiter_lines():
+                if not line or not line.startswith("data: "):
+                    continue
+                data = line[len("data: "):]
+                if data.strip() == "[DONE]":
+                    break
+                try:
+                    chunk = json.loads(data)
+                except json.JSONDecodeError:
+                    continue
+                delta = chunk.get("choices", [{}])[0].get("delta", {})
+                content = delta.get("content", "")
+                if content:
+                    yield content
+
+
+def get_llm_stream(prompt: str, history: List[Dict[str, str]], language_name: str):
+    """Dispatches to Groq or Ollama depending on LLM_BACKEND. Falls back to
+    Ollama automatically if Groq is selected but no API key is set."""
+    if LLM_BACKEND == "groq":
+        if not GROQ_API_KEY:
+            print("[llm] LLM_BACKEND=groq but GROQ_API_KEY is unset — falling back to Ollama")
+            return stream_ollama_response(prompt, history, language_name=language_name)
+        return stream_groq_response(prompt, history, language_name=language_name)
+    return stream_ollama_response(prompt, history, language_name=language_name)
 
 
 # ── Sentence buffering for TTS streaming ─────────────────────────────────────
@@ -216,7 +284,6 @@ async def professor_ws(websocket: WebSocket):
             user_text  = message.get("text", "")
 
             # ── Audio input → Whisper STT ─────────────────────────────────────
-            whisper_lang = None
             if not user_text and message.get("audio_b64"):
                 try:
                     audio_bytes = base64.b64decode(message["audio_b64"])
@@ -224,7 +291,7 @@ async def professor_ws(websocket: WebSocket):
                     user_text   = await asyncio.get_event_loop().run_in_executor(
                         None, transcribe, audio_bytes, mime_type
                     )
-                    print(f"[stt] transcribed: {user_text!r} (lang={whisper_lang})")
+                    print(f"[stt] transcribed: {user_text!r}")
                     if user_text:
                         await websocket.send_json({
                             "transcript": user_text,
@@ -237,12 +304,8 @@ async def professor_ws(websocket: WebSocket):
                 continue
 
             # ── Detect reply language from the question (text or transcript) ──
-            if whisper_lang and whisper_lang in _LANG_MAP:
-                lang_code = whisper_lang
-                language_name, tts_lang = _LANG_MAP[lang_code]
-            else:
-                lang_code, language_name, tts_lang = detect_language(user_text)
-
+            lang_code, language_name, tts_lang = detect_language(user_text)
+            print(f"[lang] detected '{lang_code}' → replying in {language_name}")
 
             # ── 1. Load conversation history ──────────────────────────────────
             try:
@@ -302,7 +365,7 @@ async def professor_ws(websocket: WebSocket):
             sentence_buf  = ""
             # tts_lang comes from detect_language() above — matches the reply language
 
-            async for token in stream_ollama_response(prompt, history, language_name=language_name):
+            async for token in get_llm_stream(prompt, history, language_name):
                 accumulated  += token
                 sentence_buf += token
 
@@ -318,6 +381,7 @@ async def professor_ws(websocket: WebSocket):
                         wav_bytes, visemes = await asyncio.get_event_loop().run_in_executor(
                             None, synthesize, sentence_buf.strip(), tts_lang
                         )
+                        print(f"[ws] sending audio chunk: {len(wav_bytes)} bytes, {len(visemes)} visemes")
                         audio_b64 = base64.b64encode(wav_bytes).decode()
                         await websocket.send_json({
                             "text_chunk": "",

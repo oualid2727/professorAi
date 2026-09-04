@@ -118,9 +118,13 @@ services:
       TTS_ENABLED: "true"
       TTS_SPEAKER_WAV: /app/api/reference_voice/professor.wav
       COQUI_TOS_AGREED: "1"
+      LLM_BACKEND: "groq"
+      GROQ_API_KEY: "${GROQ_API_KEY}"
+      GROQ_MODEL: "openai/gpt-oss-120b"
+      TTS_BACKEND: "edge"
 
       # ── Multi-stage RAG settings ──────────────────────────────────────────
-      MULTISTAGE_ENABLED:   "true"
+      MULTISTAGE_ENABLED:   "false"
       NUM_REWRITES:         "3"
       CANDIDATES_PER_QUERY: "10"
       RERANKER_MODEL:       "BAAI/bge-reranker-v2-m3"

@@ -17,6 +17,8 @@ import os
 import re
 from typing import Dict, List, Optional
 
+from api.llm_client import generate as llm_generate
+
 import httpx
 
 try:
@@ -86,25 +88,17 @@ def _build_prompt(topic: str, context: str, n: int, language_name: str) -> str:
 # ── Ollama ────────────────────────────────────────────────────────────────────
 
 def _call_ollama(prompt: str) -> str:
+    """Kept the name for minimal diff elsewhere in this file — routes
+    through llm_client, so despite the name this may hit Groq."""
     try:
-        resp = httpx.post(
-            f"http://{OLLAMA_HOST}:{OLLAMA_PORT}/api/generate",
-            json={
-                "model": OLLAMA_MODEL,
-                "prompt": prompt,
-                "stream": False,
-                "format": "json",
-                "options": {
-                    "temperature": 0.4,   # a little variety in questions
-                    "num_predict": 1500,  # room for several questions
-                },
-            },
+        return llm_generate(
+            prompt,
+            temperature=0.4,
             timeout=QUIZ_TIMEOUT,
+            json_mode=True,
         )
-        resp.raise_for_status()
-        return resp.json().get("response", "")
     except Exception as e:
-        print(f"[quiz] ollama error: {e}")
+        print(f"[quiz] llm error: {e}")
         return ""
 
 

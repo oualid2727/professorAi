@@ -30,3 +30,6 @@ faster-whisper==1.0.3
 TTS==0.22.0
 phonemizer==3.2.1
 transformers==4.41.2
+
+edge-tts>=7.0.0
+mutagen==1.47.0

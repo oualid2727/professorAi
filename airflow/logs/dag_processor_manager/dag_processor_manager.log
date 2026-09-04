@@ -26895,3 +26895,482 @@ File Path                                PID    Runtime      # DAGs    # Errors 
 ---------------------------------------  -----  ---------  --------  ----------  --------------  -------------------  ----------------------
 /opt/airflow/dags/professor_pipeline.py                           1           0  0.11s           2026-08-14T09:30:27                      12
 ================================================================================
+[2026-09-04T00:16:14.101+0000] {manager.py:483} INFO - Processing files using up to 2 processes at a time 
+[2026-09-04T00:16:14.102+0000] {manager.py:484} INFO - Process each file at most once every 30 seconds
+[2026-09-04T00:16:14.102+0000] {manager.py:485} INFO - Checking for new files in /opt/airflow/dags every 300 seconds
+[2026-09-04T00:16:14.103+0000] {manager.py:821} INFO - Searching for files in /opt/airflow/dags
+[2026-09-04T00:16:14.128+0000] {manager.py:824} INFO - There are 1 files in /opt/airflow/dags
+[2026-09-04T00:16:17.220+0000] {manager.py:997} INFO - 
+================================================================================
+DAG File Processing Stats
+
+File Path                                PID    Runtime      # DAGs    # Errors  Last Runtime    Last Run               Last # of DB Queries
+---------------------------------------  -----  ---------  --------  ----------  --------------  -------------------  ----------------------
+/opt/airflow/dags/professor_pipeline.py                           1           0  0.15s           2026-09-04T00:16:14                      12
+================================================================================
+[2026-09-04T00:16:47.757+0000] {manager.py:997} INFO - 
+================================================================================
+DAG File Processing Stats
+
+File Path                                PID    Runtime      # DAGs    # Errors  Last Runtime    Last Run               Last # of DB Queries
+---------------------------------------  -----  ---------  --------  ----------  --------------  -------------------  ----------------------
+/opt/airflow/dags/professor_pipeline.py                           1           0  0.16s           2026-09-04T00:16:44                      12
+================================================================================
+[2026-09-04T00:17:19.078+0000] {manager.py:997} INFO - 
+================================================================================
+DAG File Processing Stats
+
+File Path                                PID    Runtime      # DAGs    # Errors  Last Runtime    Last Run               Last # of DB Queries
+---------------------------------------  -----  ---------  --------  ----------  --------------  -------------------  ----------------------
+/opt/airflow/dags/professor_pipeline.py                           1           0  0.20s           2026-09-04T00:17:15                      12
+================================================================================
+[2026-09-04T00:17:50.108+0000] {manager.py:997} INFO - 
+================================================================================
+DAG File Processing Stats
+
+File Path                                PID    Runtime      # DAGs    # Errors  Last Runtime    Last Run               Last # of DB Queries
+---------------------------------------  -----  ---------  --------  ----------  --------------  -------------------  ----------------------
+/opt/airflow/dags/professor_pipeline.py                           1           0  0.18s           2026-09-04T00:17:46                      12
+================================================================================
+[2026-09-04T00:18:32.107+0000] {manager.py:483} INFO - Processing files using up to 2 processes at a time 
+[2026-09-04T00:18:32.109+0000] {manager.py:484} INFO - Process each file at most once every 30 seconds
+[2026-09-04T00:18:32.110+0000] {manager.py:485} INFO - Checking for new files in /opt/airflow/dags every 300 seconds
+[2026-09-04T00:18:32.110+0000] {manager.py:821} INFO - Searching for files in /opt/airflow/dags
+[2026-09-04T00:18:32.128+0000] {manager.py:824} INFO - There are 1 files in /opt/airflow/dags
+[2026-09-04T00:18:32.203+0000] {manager.py:997} INFO - 
+================================================================================
+DAG File Processing Stats
+
+File Path                                  PID  Runtime      # DAGs    # Errors  Last Runtime    Last Run      Last # of DB Queries
+---------------------------------------  -----  ---------  --------  ----------  --------------  ----------  ----------------------
+/opt/airflow/dags/professor_pipeline.py    171  0.02s             0           0                                                   0
+================================================================================
+[2026-09-04T00:19:03.393+0000] {manager.py:997} INFO - 
+================================================================================
+DAG File Processing Stats
+
+File Path                                PID    Runtime      # DAGs    # Errors  Last Runtime    Last Run               Last # of DB Queries
+---------------------------------------  -----  ---------  --------  ----------  --------------  -------------------  ----------------------
+/opt/airflow/dags/professor_pipeline.py                           1           0  0.22s           2026-09-04T00:19:02                      12
+================================================================================
+[2026-09-04T00:19:34.375+0000] {manager.py:997} INFO - 
+================================================================================
+DAG File Processing Stats
+
+File Path                                PID    Runtime      # DAGs    # Errors  Last Runtime    Last Run               Last # of DB Queries
+---------------------------------------  -----  ---------  --------  ----------  --------------  -------------------  ----------------------
+/opt/airflow/dags/professor_pipeline.py                           1           0  0.16s           2026-09-04T00:19:33                      12
+================================================================================
+[2026-09-04T00:20:04.675+0000] {manager.py:997} INFO - 
+================================================================================
+DAG File Processing Stats
+
+File Path                                PID    Runtime      # DAGs    # Errors  Last Runtime    Last Run               Last # of DB Queries
+---------------------------------------  -----  ---------  --------  ----------  --------------  -------------------  ----------------------
+/opt/airflow/dags/professor_pipeline.py                           1           0  0.24s           2026-09-04T00:20:03                      12
+================================================================================
+[2026-09-04T00:20:36.380+0000] {manager.py:997} INFO - 
+================================================================================
+DAG File Processing Stats
+
+File Path                                PID    Runtime      # DAGs    # Errors  Last Runtime    Last Run               Last # of DB Queries
+---------------------------------------  -----  ---------  --------  ----------  --------------  -------------------  ----------------------
+/opt/airflow/dags/professor_pipeline.py                           1           0  0.15s           2026-09-04T00:20:34                      12
+================================================================================
+[2026-09-04T00:21:07.550+0000] {manager.py:997} INFO - 
+================================================================================
+DAG File Processing Stats
+
+File Path                                PID    Runtime      # DAGs    # Errors  Last Runtime    Last Run               Last # of DB Queries
+---------------------------------------  -----  ---------  --------  ----------  --------------  -------------------  ----------------------
+/opt/airflow/dags/professor_pipeline.py                           1           0  0.16s           2026-09-04T00:21:04                      12
+================================================================================
+[2026-09-04T00:21:38.821+0000] {manager.py:997} INFO - 
+================================================================================
+DAG File Processing Stats
+
+File Path                                PID    Runtime      # DAGs    # Errors  Last Runtime    Last Run               Last # of DB Queries
+---------------------------------------  -----  ---------  --------  ----------  --------------  -------------------  ----------------------
+/opt/airflow/dags/professor_pipeline.py                           1           0  0.15s           2026-09-04T00:21:34                      12
+================================================================================
+[2026-09-04T00:22:19.525+0000] {manager.py:483} INFO - Processing files using up to 2 processes at a time 
+[2026-09-04T00:22:19.526+0000] {manager.py:484} INFO - Process each file at most once every 30 seconds
+[2026-09-04T00:22:19.527+0000] {manager.py:485} INFO - Checking for new files in /opt/airflow/dags every 300 seconds
+[2026-09-04T00:22:19.528+0000] {manager.py:821} INFO - Searching for files in /opt/airflow/dags
+[2026-09-04T00:22:19.544+0000] {manager.py:824} INFO - There are 1 files in /opt/airflow/dags
+[2026-09-04T00:22:19.624+0000] {manager.py:997} INFO - 
+================================================================================
+DAG File Processing Stats
+
+File Path                                  PID  Runtime      # DAGs    # Errors  Last Runtime    Last Run      Last # of DB Queries
+---------------------------------------  -----  ---------  --------  ----------  --------------  ----------  ----------------------
+/opt/airflow/dags/professor_pipeline.py    171  0.03s             0           0                                                   0
+================================================================================
+[2026-09-04T00:22:50.824+0000] {manager.py:997} INFO - 
+================================================================================
+DAG File Processing Stats
+
+File Path                                PID    Runtime      # DAGs    # Errors  Last Runtime    Last Run               Last # of DB Queries
+---------------------------------------  -----  ---------  --------  ----------  --------------  -------------------  ----------------------
+/opt/airflow/dags/professor_pipeline.py                           1           0  0.29s           2026-09-04T00:22:50                      12
+================================================================================
+[2026-09-04T00:23:22.201+0000] {manager.py:997} INFO - 
+================================================================================
+DAG File Processing Stats
+
+File Path                                PID    Runtime      # DAGs    # Errors  Last Runtime    Last Run               Last # of DB Queries
+---------------------------------------  -----  ---------  --------  ----------  --------------  -------------------  ----------------------
+/opt/airflow/dags/professor_pipeline.py                           1           0  0.20s           2026-09-04T00:23:20                      12
+================================================================================
+[2026-09-04T00:23:53.537+0000] {manager.py:997} INFO - 
+================================================================================
+DAG File Processing Stats
+
+File Path                                PID    Runtime      # DAGs    # Errors  Last Runtime    Last Run               Last # of DB Queries
+---------------------------------------  -----  ---------  --------  ----------  --------------  -------------------  ----------------------
+/opt/airflow/dags/professor_pipeline.py                           1           0  0.21s           2026-09-04T00:23:50                      12
+================================================================================
+[2026-09-04T00:24:24.777+0000] {manager.py:997} INFO - 
+================================================================================
+DAG File Processing Stats
+
+File Path                                PID    Runtime      # DAGs    # Errors  Last Runtime    Last Run               Last # of DB Queries
+---------------------------------------  -----  ---------  --------  ----------  --------------  -------------------  ----------------------
+/opt/airflow/dags/professor_pipeline.py                           1           0  0.20s           2026-09-04T00:24:20                      12
+================================================================================
+[2026-09-04T00:25:05.750+0000] {manager.py:483} INFO - Processing files using up to 2 processes at a time 
+[2026-09-04T00:25:05.751+0000] {manager.py:484} INFO - Process each file at most once every 30 seconds
+[2026-09-04T00:25:05.752+0000] {manager.py:485} INFO - Checking for new files in /opt/airflow/dags every 300 seconds
+[2026-09-04T00:25:05.753+0000] {manager.py:821} INFO - Searching for files in /opt/airflow/dags
+[2026-09-04T00:25:05.772+0000] {manager.py:824} INFO - There are 1 files in /opt/airflow/dags
+[2026-09-04T00:25:05.859+0000] {manager.py:997} INFO - 
+================================================================================
+DAG File Processing Stats
+
+File Path                                  PID  Runtime      # DAGs    # Errors  Last Runtime    Last Run      Last # of DB Queries
+---------------------------------------  -----  ---------  --------  ----------  --------------  ----------  ----------------------
+/opt/airflow/dags/professor_pipeline.py    171  0.04s             0           0                                                   0
+================================================================================
+[2026-09-04T00:25:36.996+0000] {manager.py:997} INFO - 
+================================================================================
+DAG File Processing Stats
+
+File Path                                PID    Runtime      # DAGs    # Errors  Last Runtime    Last Run               Last # of DB Queries
+---------------------------------------  -----  ---------  --------  ----------  --------------  -------------------  ----------------------
+/opt/airflow/dags/professor_pipeline.py                           1           0  0.13s           2026-09-04T00:25:36                      12
+================================================================================
+[2026-09-04T00:26:08.710+0000] {manager.py:997} INFO - 
+================================================================================
+DAG File Processing Stats
+
+File Path                                PID    Runtime      # DAGs    # Errors  Last Runtime    Last Run               Last # of DB Queries
+---------------------------------------  -----  ---------  --------  ----------  --------------  -------------------  ----------------------
+/opt/airflow/dags/professor_pipeline.py                           1           0  0.20s           2026-09-04T00:26:06                      12
+================================================================================
+[2026-09-04T00:26:40.127+0000] {manager.py:997} INFO - 
+================================================================================
+DAG File Processing Stats
+
+File Path                                PID    Runtime      # DAGs    # Errors  Last Runtime    Last Run               Last # of DB Queries
+---------------------------------------  -----  ---------  --------  ----------  --------------  -------------------  ----------------------
+/opt/airflow/dags/professor_pipeline.py                           1           0  0.13s           2026-09-04T00:26:36                      12
+================================================================================
+[2026-09-04T00:27:12.162+0000] {manager.py:997} INFO - 
+================================================================================
+DAG File Processing Stats
+
+File Path                                PID    Runtime      # DAGs    # Errors  Last Runtime    Last Run               Last # of DB Queries
+---------------------------------------  -----  ---------  --------  ----------  --------------  -------------------  ----------------------
+/opt/airflow/dags/professor_pipeline.py                           1           0  0.13s           2026-09-04T00:27:07                      12
+================================================================================
+[2026-09-04T00:27:43.486+0000] {manager.py:997} INFO - 
+================================================================================
+DAG File Processing Stats
+
+File Path                                PID    Runtime      # DAGs    # Errors  Last Runtime    Last Run               Last # of DB Queries
+---------------------------------------  -----  ---------  --------  ----------  --------------  -------------------  ----------------------
+/opt/airflow/dags/professor_pipeline.py                           1           0  0.13s           2026-09-04T00:27:37                      12
+================================================================================
+[2026-09-04T00:28:14.676+0000] {manager.py:997} INFO - 
+================================================================================
+DAG File Processing Stats
+
+File Path                                PID    Runtime      # DAGs    # Errors  Last Runtime    Last Run               Last # of DB Queries
+---------------------------------------  -----  ---------  --------  ----------  --------------  -------------------  ----------------------
+/opt/airflow/dags/professor_pipeline.py                           1           0  0.11s           2026-09-04T00:28:07                      12
+================================================================================
+[2026-09-04T00:28:45.929+0000] {manager.py:997} INFO - 
+================================================================================
+DAG File Processing Stats
+
+File Path                                PID    Runtime      # DAGs    # Errors  Last Runtime    Last Run               Last # of DB Queries
+---------------------------------------  -----  ---------  --------  ----------  --------------  -------------------  ----------------------
+/opt/airflow/dags/professor_pipeline.py                           1           0  0.13s           2026-09-04T00:28:37                      12
+================================================================================
+[2026-09-04T00:29:17.115+0000] {manager.py:997} INFO - 
+================================================================================
+DAG File Processing Stats
+
+File Path                                PID    Runtime      # DAGs    # Errors  Last Runtime    Last Run               Last # of DB Queries
+---------------------------------------  -----  ---------  --------  ----------  --------------  -------------------  ----------------------
+/opt/airflow/dags/professor_pipeline.py                           1           0  0.10s           2026-09-04T00:29:08                      12
+================================================================================
+[2026-09-04T00:30:07.171+0000] {manager.py:483} INFO - Processing files using up to 2 processes at a time 
+[2026-09-04T00:30:07.172+0000] {manager.py:484} INFO - Process each file at most once every 30 seconds
+[2026-09-04T00:30:07.173+0000] {manager.py:485} INFO - Checking for new files in /opt/airflow/dags every 300 seconds
+[2026-09-04T00:30:07.174+0000] {manager.py:821} INFO - Searching for files in /opt/airflow/dags
+[2026-09-04T00:30:07.192+0000] {manager.py:824} INFO - There are 1 files in /opt/airflow/dags
+[2026-09-04T00:30:07.261+0000] {manager.py:997} INFO - 
+================================================================================
+DAG File Processing Stats
+
+File Path                                  PID  Runtime      # DAGs    # Errors  Last Runtime    Last Run      Last # of DB Queries
+---------------------------------------  -----  ---------  --------  ----------  --------------  ----------  ----------------------
+/opt/airflow/dags/professor_pipeline.py    171  0.02s             0           0                                                   0
+================================================================================
+[2026-09-04T00:30:38.586+0000] {manager.py:997} INFO - 
+================================================================================
+DAG File Processing Stats
+
+File Path                                PID    Runtime      # DAGs    # Errors  Last Runtime    Last Run               Last # of DB Queries
+---------------------------------------  -----  ---------  --------  ----------  --------------  -------------------  ----------------------
+/opt/airflow/dags/professor_pipeline.py                           1           0  0.16s           2026-09-04T00:30:37                      12
+================================================================================
+[2026-09-04T00:31:10.049+0000] {manager.py:997} INFO - 
+================================================================================
+DAG File Processing Stats
+
+File Path                                PID    Runtime      # DAGs    # Errors  Last Runtime    Last Run               Last # of DB Queries
+---------------------------------------  -----  ---------  --------  ----------  --------------  -------------------  ----------------------
+/opt/airflow/dags/professor_pipeline.py                           1           0  0.14s           2026-09-04T00:31:08                      12
+================================================================================
+[2026-09-04T00:31:41.396+0000] {manager.py:997} INFO - 
+================================================================================
+DAG File Processing Stats
+
+File Path                                PID    Runtime      # DAGs    # Errors  Last Runtime    Last Run               Last # of DB Queries
+---------------------------------------  -----  ---------  --------  ----------  --------------  -------------------  ----------------------
+/opt/airflow/dags/professor_pipeline.py                           1           0  0.12s           2026-09-04T00:31:38                      12
+================================================================================
+[2026-09-04T00:32:12.959+0000] {manager.py:997} INFO - 
+================================================================================
+DAG File Processing Stats
+
+File Path                                PID    Runtime      # DAGs    # Errors  Last Runtime    Last Run               Last # of DB Queries
+---------------------------------------  -----  ---------  --------  ----------  --------------  -------------------  ----------------------
+/opt/airflow/dags/professor_pipeline.py                           1           0  0.13s           2026-09-04T00:32:09                      12
+================================================================================
+[2026-09-04T00:32:44.861+0000] {manager.py:997} INFO - 
+================================================================================
+DAG File Processing Stats
+
+File Path                                PID    Runtime      # DAGs    # Errors  Last Runtime    Last Run               Last # of DB Queries
+---------------------------------------  -----  ---------  --------  ----------  --------------  -------------------  ----------------------
+/opt/airflow/dags/professor_pipeline.py                           1           0  0.10s           2026-09-04T00:32:39                      12
+================================================================================
+[2026-09-04T00:33:16.076+0000] {manager.py:997} INFO - 
+================================================================================
+DAG File Processing Stats
+
+File Path                                PID    Runtime      # DAGs    # Errors  Last Runtime    Last Run               Last # of DB Queries
+---------------------------------------  -----  ---------  --------  ----------  --------------  -------------------  ----------------------
+/opt/airflow/dags/professor_pipeline.py                           1           0  0.10s           2026-09-04T00:33:10                      12
+================================================================================
+[2026-09-04T00:33:46.908+0000] {manager.py:997} INFO - 
+================================================================================
+DAG File Processing Stats
+
+File Path                                PID    Runtime      # DAGs    # Errors  Last Runtime    Last Run               Last # of DB Queries
+---------------------------------------  -----  ---------  --------  ----------  --------------  -------------------  ----------------------
+/opt/airflow/dags/professor_pipeline.py                           1           0  0.18s           2026-09-04T00:33:40                      12
+================================================================================
+[2026-09-04T00:34:19.039+0000] {manager.py:997} INFO - 
+================================================================================
+DAG File Processing Stats
+
+File Path                                PID    Runtime      # DAGs    # Errors  Last Runtime    Last Run               Last # of DB Queries
+---------------------------------------  -----  ---------  --------  ----------  --------------  -------------------  ----------------------
+/opt/airflow/dags/professor_pipeline.py                           1           0  0.16s           2026-09-04T00:34:13                      12
+================================================================================
+[2026-09-04T00:34:49.803+0000] {manager.py:997} INFO - 
+================================================================================
+DAG File Processing Stats
+
+File Path                                PID    Runtime      # DAGs    # Errors  Last Runtime    Last Run               Last # of DB Queries
+---------------------------------------  -----  ---------  --------  ----------  --------------  -------------------  ----------------------
+/opt/airflow/dags/professor_pipeline.py                           1           0  0.22s           2026-09-04T00:34:43                      12
+================================================================================
+[2026-09-04T00:35:07.297+0000] {manager.py:821} INFO - Searching for files in /opt/airflow/dags
+[2026-09-04T00:35:07.314+0000] {manager.py:824} INFO - There are 1 files in /opt/airflow/dags
+[2026-09-04T00:35:21.184+0000] {manager.py:997} INFO - 
+================================================================================
+DAG File Processing Stats
+
+File Path                                PID    Runtime      # DAGs    # Errors  Last Runtime    Last Run               Last # of DB Queries
+---------------------------------------  -----  ---------  --------  ----------  --------------  -------------------  ----------------------
+/opt/airflow/dags/professor_pipeline.py                           1           0  0.10s           2026-09-04T00:35:14                      12
+================================================================================
+[2026-09-04T00:35:52.705+0000] {manager.py:997} INFO - 
+================================================================================
+DAG File Processing Stats
+
+File Path                                PID    Runtime      # DAGs    # Errors  Last Runtime    Last Run               Last # of DB Queries
+---------------------------------------  -----  ---------  --------  ----------  --------------  -------------------  ----------------------
+/opt/airflow/dags/professor_pipeline.py                           1           0  0.11s           2026-09-04T00:35:44                      12
+================================================================================
+[2026-09-04T00:36:24.110+0000] {manager.py:997} INFO - 
+================================================================================
+DAG File Processing Stats
+
+File Path                                PID    Runtime      # DAGs    # Errors  Last Runtime    Last Run               Last # of DB Queries
+---------------------------------------  -----  ---------  --------  ----------  --------------  -------------------  ----------------------
+/opt/airflow/dags/professor_pipeline.py                           1           0  0.09s           2026-09-04T00:36:15                      12
+================================================================================
+[2026-09-04T00:38:21.525+0000] {manager.py:483} INFO - Processing files using up to 2 processes at a time 
+[2026-09-04T00:38:21.525+0000] {manager.py:484} INFO - Process each file at most once every 30 seconds
+[2026-09-04T00:38:21.526+0000] {manager.py:485} INFO - Checking for new files in /opt/airflow/dags every 300 seconds
+[2026-09-04T00:38:21.527+0000] {manager.py:821} INFO - Searching for files in /opt/airflow/dags
+[2026-09-04T00:38:21.544+0000] {manager.py:824} INFO - There are 1 files in /opt/airflow/dags
+[2026-09-04T00:38:21.605+0000] {manager.py:997} INFO - 
+================================================================================
+DAG File Processing Stats
+
+File Path                                  PID  Runtime      # DAGs    # Errors  Last Runtime    Last Run      Last # of DB Queries
+---------------------------------------  -----  ---------  --------  ----------  --------------  ----------  ----------------------
+/opt/airflow/dags/professor_pipeline.py    171  0.02s             0           0                                                   0
+================================================================================
+[2026-09-04T00:58:10.423+0000] {manager.py:483} INFO - Processing files using up to 2 processes at a time 
+[2026-09-04T00:58:10.424+0000] {manager.py:484} INFO - Process each file at most once every 30 seconds
+[2026-09-04T00:58:10.425+0000] {manager.py:485} INFO - Checking for new files in /opt/airflow/dags every 300 seconds
+[2026-09-04T00:58:10.425+0000] {manager.py:821} INFO - Searching for files in /opt/airflow/dags
+[2026-09-04T00:58:10.445+0000] {manager.py:824} INFO - There are 1 files in /opt/airflow/dags
+[2026-09-04T00:58:10.538+0000] {manager.py:997} INFO - 
+================================================================================
+DAG File Processing Stats
+
+File Path                                  PID  Runtime      # DAGs    # Errors  Last Runtime    Last Run      Last # of DB Queries
+---------------------------------------  -----  ---------  --------  ----------  --------------  ----------  ----------------------
+/opt/airflow/dags/professor_pipeline.py    171  0.03s             0           0                                                   0
+================================================================================
+[2026-09-04T00:58:42.779+0000] {manager.py:997} INFO - 
+================================================================================
+DAG File Processing Stats
+
+File Path                                  PID  Runtime      # DAGs    # Errors  Last Runtime    Last Run               Last # of DB Queries
+---------------------------------------  -----  ---------  --------  ----------  --------------  -------------------  ----------------------
+/opt/airflow/dags/professor_pipeline.py    213  0.01s             1           0  0.13s           2026-09-04T00:58:10                      12
+================================================================================
+[2026-09-04T00:59:13.638+0000] {manager.py:997} INFO - 
+================================================================================
+DAG File Processing Stats
+
+File Path                                  PID  Runtime      # DAGs    # Errors  Last Runtime    Last Run               Last # of DB Queries
+---------------------------------------  -----  ---------  --------  ----------  --------------  -------------------  ----------------------
+/opt/airflow/dags/professor_pipeline.py    218  0.01s             1           0  0.12s           2026-09-04T00:58:42                      12
+================================================================================
+[2026-09-04T00:59:45.206+0000] {manager.py:997} INFO - 
+================================================================================
+DAG File Processing Stats
+
+File Path                                PID    Runtime      # DAGs    # Errors  Last Runtime    Last Run               Last # of DB Queries
+---------------------------------------  -----  ---------  --------  ----------  --------------  -------------------  ----------------------
+/opt/airflow/dags/professor_pipeline.py                           1           0  0.11s           2026-09-04T00:59:44                      12
+================================================================================
+[2026-09-04T01:00:16.834+0000] {manager.py:997} INFO - 
+================================================================================
+DAG File Processing Stats
+
+File Path                                PID    Runtime      # DAGs    # Errors  Last Runtime    Last Run               Last # of DB Queries
+---------------------------------------  -----  ---------  --------  ----------  --------------  -------------------  ----------------------
+/opt/airflow/dags/professor_pipeline.py                           1           0  0.11s           2026-09-04T01:00:14                      12
+================================================================================
+[2026-09-04T01:00:48.439+0000] {manager.py:997} INFO - 
+================================================================================
+DAG File Processing Stats
+
+File Path                                PID    Runtime      # DAGs    # Errors  Last Runtime    Last Run               Last # of DB Queries
+---------------------------------------  -----  ---------  --------  ----------  --------------  -------------------  ----------------------
+/opt/airflow/dags/professor_pipeline.py                           1           0  0.12s           2026-09-04T01:00:45                      12
+================================================================================
+[2026-09-04T01:01:20.583+0000] {manager.py:997} INFO - 
+================================================================================
+DAG File Processing Stats
+
+File Path                                PID    Runtime      # DAGs    # Errors  Last Runtime    Last Run               Last # of DB Queries
+---------------------------------------  -----  ---------  --------  ----------  --------------  -------------------  ----------------------
+/opt/airflow/dags/professor_pipeline.py                           1           0  0.12s           2026-09-04T01:01:16                      12
+================================================================================
+[2026-09-04T01:01:52.139+0000] {manager.py:997} INFO - 
+================================================================================
+DAG File Processing Stats
+
+File Path                                PID    Runtime      # DAGs    # Errors  Last Runtime    Last Run               Last # of DB Queries
+---------------------------------------  -----  ---------  --------  ----------  --------------  -------------------  ----------------------
+/opt/airflow/dags/professor_pipeline.py                           1           0  0.11s           2026-09-04T01:01:46                      12
+================================================================================
+[2026-09-04T01:02:22.952+0000] {manager.py:997} INFO - 
+================================================================================
+DAG File Processing Stats
+
+File Path                                PID    Runtime      # DAGs    # Errors  Last Runtime    Last Run               Last # of DB Queries
+---------------------------------------  -----  ---------  --------  ----------  --------------  -------------------  ----------------------
+/opt/airflow/dags/professor_pipeline.py                           1           0  0.10s           2026-09-04T01:02:17                      12
+================================================================================
+[2026-09-04T01:02:54.681+0000] {manager.py:997} INFO - 
+================================================================================
+DAG File Processing Stats
+
+File Path                                PID    Runtime      # DAGs    # Errors  Last Runtime    Last Run               Last # of DB Queries
+---------------------------------------  -----  ---------  --------  ----------  --------------  -------------------  ----------------------
+/opt/airflow/dags/professor_pipeline.py                           1           0  0.11s           2026-09-04T01:02:47                      12
+================================================================================
+[2026-09-04T01:03:11.072+0000] {manager.py:821} INFO - Searching for files in /opt/airflow/dags
+[2026-09-04T01:03:11.088+0000] {manager.py:824} INFO - There are 1 files in /opt/airflow/dags
+[2026-09-04T01:03:26.186+0000] {manager.py:997} INFO - 
+================================================================================
+DAG File Processing Stats
+
+File Path                                PID    Runtime      # DAGs    # Errors  Last Runtime    Last Run               Last # of DB Queries
+---------------------------------------  -----  ---------  --------  ----------  --------------  -------------------  ----------------------
+/opt/airflow/dags/professor_pipeline.py                           1           0  0.10s           2026-09-04T01:03:18                      12
+================================================================================
+[2026-09-04T01:03:57.759+0000] {manager.py:997} INFO - 
+================================================================================
+DAG File Processing Stats
+
+File Path                                PID    Runtime      # DAGs    # Errors  Last Runtime    Last Run               Last # of DB Queries
+---------------------------------------  -----  ---------  --------  ----------  --------------  -------------------  ----------------------
+/opt/airflow/dags/professor_pipeline.py                           1           0  0.11s           2026-09-04T01:03:48                      12
+================================================================================
+[2026-09-04T01:04:29.360+0000] {manager.py:997} INFO - 
+================================================================================
+DAG File Processing Stats
+
+File Path                                PID    Runtime      # DAGs    # Errors  Last Runtime    Last Run               Last # of DB Queries
+---------------------------------------  -----  ---------  --------  ----------  --------------  -------------------  ----------------------
+/opt/airflow/dags/professor_pipeline.py                           1           0  0.12s           2026-09-04T01:04:19                      12
+================================================================================
+[2026-09-04T01:05:01.006+0000] {manager.py:997} INFO - 
+================================================================================
+DAG File Processing Stats
+
+File Path                                PID    Runtime      # DAGs    # Errors  Last Runtime    Last Run               Last # of DB Queries
+---------------------------------------  -----  ---------  --------  ----------  --------------  -------------------  ----------------------
+/opt/airflow/dags/professor_pipeline.py                           1           0  0.12s           2026-09-04T01:04:50                      12
+================================================================================
+[2026-09-04T01:05:32.495+0000] {manager.py:997} INFO - 
+================================================================================
+DAG File Processing Stats
+
+File Path                                PID    Runtime      # DAGs    # Errors  Last Runtime    Last Run               Last # of DB Queries
+---------------------------------------  -----  ---------  --------  ----------  --------------  -------------------  ----------------------
+/opt/airflow/dags/professor_pipeline.py                           1           0  0.11s           2026-09-04T01:05:20                      12
+================================================================================
+[2026-09-04T01:06:04.739+0000] {manager.py:997} INFO - 
+================================================================================
+DAG File Processing Stats
+
+File Path                                PID    Runtime      # DAGs    # Errors  Last Runtime    Last Run               Last # of DB Queries
+---------------------------------------  -----  ---------  --------  ----------  --------------  -------------------  ----------------------
+/opt/airflow/dags/professor_pipeline.py                           1           0  0.11s           2026-09-04T01:05:51                      12
+================================================================================
